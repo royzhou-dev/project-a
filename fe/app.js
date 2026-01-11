@@ -1,0 +1,780 @@
+const API_BASE = 'http://localhost:5000/api';
+let allTickers = [];
+let currentTicker = '';
+let chartInstance = null;
+
+// Cache TTL configuration (in minutes)
+const CACHE_TTL = {
+    STATIC: null,           // Cache until page refresh
+    DAILY: 1440,            // 24 hours (for EOD data)
+    MODERATE: 30,           // 30 minutes
+    SHORT: 15               // 15 minutes
+};
+
+// Cache manager
+const cache = {
+    data: {},
+
+    set(key, value, ttlMinutes = null) {
+        this.data[key] = {
+            value: value,
+            timestamp: Date.now(),
+            ttl: ttlMinutes ? ttlMinutes * 60 * 1000 : null
+        };
+    },
+
+    get(key) {
+        const item = this.data[key];
+        if (!item) return null;
+
+        // Check if expired
+        if (item.ttl && (Date.now() - item.timestamp > item.ttl)) {
+            delete this.data[key];
+            return null;
+        }
+
+        return item.value;
+    },
+
+    has(key) {
+        return this.get(key) !== null;
+    },
+
+    clear() {
+        this.data = {};
+    },
+
+    getStats() {
+        return {
+            entries: Object.keys(this.data).length,
+            keys: Object.keys(this.data)
+        };
+    }
+};
+
+// Expose cache to global scope for debugging
+window.stockCache = cache;
+
+// Load tickers on page load
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadTickers();
+    await loadMarketStatus();
+    setupEventListeners();
+});
+
+async function loadTickers() {
+    try {
+        const response = await fetch('../company_tickers.json');
+        const data = await response.json();
+
+        allTickers = Object.values(data).map(item => ({
+            ticker: item.ticker,
+            title: item.title,
+            cik: item.cik_str
+        }));
+
+        populateTickerSelect(allTickers);
+    } catch (error) {
+        console.error('Error loading tickers:', error);
+    }
+}
+
+function populateTickerSelect(tickers) {
+    const select = document.getElementById('tickerSelect');
+    select.innerHTML = '';
+
+    tickers.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.ticker;
+        option.textContent = `${item.ticker} - ${item.title}`;
+        select.appendChild(option);
+    });
+}
+
+function setupEventListeners() {
+    const tickerSearch = document.getElementById('tickerSearch');
+    const tickerSelect = document.getElementById('tickerSelect');
+
+    tickerSearch.addEventListener('input', (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        const filtered = allTickers.filter(item =>
+            item.ticker.toLowerCase().includes(searchTerm) ||
+            item.title.toLowerCase().includes(searchTerm)
+        );
+        populateTickerSelect(filtered);
+    });
+
+    tickerSelect.addEventListener('change', async (e) => {
+        const ticker = e.target.value;
+        if (ticker) {
+            await loadStockData(ticker);
+        }
+    });
+
+    // Tab switching
+    const tabButtons = document.querySelectorAll('.tab-button');
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const tabName = button.dataset.tab;
+            switchTab(tabName);
+        });
+    });
+
+    // Chart range buttons
+    const rangeButtons = document.querySelectorAll('.chart-range-btn');
+    rangeButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const range = button.dataset.range;
+            loadChartData(currentTicker, range);
+            rangeButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+        });
+    });
+}
+
+function switchTab(tabName) {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+
+    tabButtons.forEach(btn => btn.classList.remove('active'));
+    tabPanes.forEach(pane => pane.classList.remove('active'));
+
+    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+    document.getElementById(tabName).classList.add('active');
+
+    if (tabName === 'chart' && currentTicker) {
+        loadChartData(currentTicker, '1M');
+    } else if (tabName === 'financials' && currentTicker) {
+        loadFinancials(currentTicker);
+    } else if (tabName === 'news' && currentTicker) {
+        loadNews(currentTicker);
+    } else if (tabName === 'dividends' && currentTicker) {
+        loadDividends(currentTicker);
+    } else if (tabName === 'splits' && currentTicker) {
+        loadSplits(currentTicker);
+    } else if (tabName === 'related' && currentTicker) {
+        loadRelatedCompanies(currentTicker);
+    }
+}
+
+async function loadStockData(ticker) {
+    currentTicker = ticker;
+    document.getElementById('stockData').classList.remove('hidden');
+    showLoading(true);
+
+    try {
+        await Promise.all([
+            loadTickerDetails(ticker),
+            loadPreviousClose(ticker)
+        ]);
+
+        const activeTab = document.querySelector('.tab-button.active').dataset.tab;
+        if (activeTab === 'chart') {
+            await loadChartData(ticker, '1M');
+        } else if (activeTab === 'financials') {
+            await loadFinancials(ticker);
+        } else if (activeTab === 'news') {
+            await loadNews(ticker);
+        }
+    } catch (error) {
+        console.error('Error loading stock data:', error);
+        alert('Error loading stock data. Please check your API key and try again.');
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function loadTickerDetails(ticker) {
+    const cacheKey = `details_${ticker}`;
+
+    // Check cache first
+    if (cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderTickerDetails(data);
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/ticker/${ticker}/details`);
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.STATIC);
+
+        renderTickerDetails(data);
+    } catch (error) {
+        console.error('Error loading ticker details:', error);
+    }
+}
+
+function renderTickerDetails(data) {
+    if (data.results) {
+        const results = data.results;
+        document.getElementById('stockTitle').textContent =
+            `${results.ticker} - ${results.name}`;
+        document.getElementById('companyDesc').textContent =
+            results.description || 'No description available';
+        document.getElementById('marketCap').textContent =
+            results.market_cap ? formatLargeNumber(results.market_cap) : '--';
+    }
+}
+
+async function loadSnapshot(ticker) {
+    try {
+        const response = await fetch(`${API_BASE}/ticker/${ticker}/snapshot`);
+        const data = await response.json();
+
+        if (data.ticker) {
+            const ticker_data = data.ticker;
+            const day = ticker_data.day || {};
+
+            document.getElementById('openPrice').textContent =
+                day.o ? `$${day.o.toFixed(2)}` : '--';
+            document.getElementById('highPrice').textContent =
+                day.h ? `$${day.h.toFixed(2)}` : '--';
+            document.getElementById('lowPrice').textContent =
+                day.l ? `$${day.l.toFixed(2)}` : '--';
+            document.getElementById('volume').textContent =
+                day.v ? formatLargeNumber(day.v) : '--';
+        }
+    } catch (error) {
+        console.error('Error loading snapshot:', error);
+    }
+}
+
+async function loadPreviousClose(ticker) {
+    const cacheKey = `prev_close_${ticker}`;
+
+    // Check cache first
+    if (cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderPreviousClose(data);
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/ticker/${ticker}/previous-close`);
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.DAILY);
+
+        renderPreviousClose(data);
+    } catch (error) {
+        console.error('Error loading previous close:', error);
+    }
+}
+
+function renderPreviousClose(data) {
+    if (data.results && data.results.length > 0) {
+        const result = data.results[0];
+        const priceElement = document.getElementById('stockPrice');
+        priceElement.textContent = `$${result.c.toFixed(2)}`;
+
+        const change = result.c - result.o;
+        const changePercent = ((change / result.o) * 100).toFixed(2);
+
+        if (change >= 0) {
+            priceElement.classList.add('positive');
+            priceElement.classList.remove('negative');
+            priceElement.innerHTML += ` <span style="font-size: 0.6em;">+${changePercent}%</span>`;
+        } else {
+            priceElement.classList.add('negative');
+            priceElement.classList.remove('positive');
+            priceElement.innerHTML += ` <span style="font-size: 0.6em;">${changePercent}%</span>`;
+        }
+
+        // Populate Overview metrics from previous close data
+        document.getElementById('openPrice').textContent = `$${result.o.toFixed(2)}`;
+        document.getElementById('highPrice').textContent = `$${result.h.toFixed(2)}`;
+        document.getElementById('lowPrice').textContent = `$${result.l.toFixed(2)}`;
+        document.getElementById('volume').textContent = formatLargeNumber(result.v);
+    }
+}
+
+async function loadChartData(ticker, range) {
+    const cacheKey = `chart_${ticker}_${range}`;
+
+    // Check cache first
+    if (cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        if (data.results) {
+            renderChart(data.results);
+        }
+        return;
+    }
+
+    const { from, to } = getDateRange(range);
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/ticker/${ticker}/aggregates?from=${from}&to=${to}&timespan=day`
+        );
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.DAILY);
+
+        if (data.results) {
+            renderChart(data.results);
+        }
+    } catch (error) {
+        console.error('Error loading chart data:', error);
+    }
+}
+
+function getDateRange(range) {
+    const to = new Date();
+    const from = new Date();
+
+    switch(range) {
+        case '1M':
+            from.setMonth(from.getMonth() - 1);
+            break;
+        case '3M':
+            from.setMonth(from.getMonth() - 3);
+            break;
+        case '6M':
+            from.setMonth(from.getMonth() - 6);
+            break;
+        case '1Y':
+            from.setFullYear(from.getFullYear() - 1);
+            break;
+        case '5Y':
+            from.setFullYear(from.getFullYear() - 5);
+            break;
+    }
+
+    return {
+        from: from.toISOString().split('T')[0],
+        to: to.toISOString().split('T')[0]
+    };
+}
+
+function renderChart(data) {
+    const canvas = document.getElementById('priceChart');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = canvas.offsetWidth;
+    canvas.height = 400;
+
+    const padding = 40;
+    const chartWidth = canvas.width - 2 * padding;
+    const chartHeight = canvas.height - 2 * padding;
+
+    const prices = data.map(d => d.c);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const priceRange = maxPrice - minPrice;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#667eea';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    data.forEach((point, index) => {
+        const x = padding + (index / (data.length - 1)) * chartWidth;
+        const y = canvas.height - padding - ((point.c - minPrice) / priceRange) * chartHeight;
+
+        if (index === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    });
+
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(102, 126, 234, 0.1)';
+    ctx.lineTo(canvas.width - padding, canvas.height - padding);
+    ctx.lineTo(padding, canvas.height - padding);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, canvas.height - padding);
+    ctx.lineTo(canvas.width - padding, canvas.height - padding);
+    ctx.stroke();
+
+    ctx.fillStyle = '#666';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`$${maxPrice.toFixed(2)}`, padding - 5, padding + 5);
+    ctx.fillText(`$${minPrice.toFixed(2)}`, padding - 5, canvas.height - padding + 5);
+}
+
+async function loadFinancials(ticker) {
+    const cacheKey = `financials_${ticker}`;
+    const container = document.getElementById('financialsData');
+    container.innerHTML = '<p>Loading financial data...</p>';
+
+    // Check cache first
+    if (cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderFinancials(data, container);
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/ticker/${ticker}/financials`);
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.MODERATE);
+
+        renderFinancials(data, container);
+    } catch (error) {
+        console.error('Error loading financials:', error);
+        container.innerHTML = '<p>Error loading financial data.</p>';
+    }
+}
+
+function renderFinancials(data, container) {
+    if (data.results && data.results.length > 0) {
+        let html = '';
+
+        data.results.forEach(period => {
+            const financials = period.financials;
+            const date = new Date(period.fiscal_period).toLocaleDateString();
+
+            html += `
+                <div class="financial-period">
+                    <h4>${period.fiscal_year} - ${period.fiscal_period} (${date})</h4>
+                    <div class="financial-grid">
+            `;
+
+            if (financials.income_statement) {
+                const income = financials.income_statement;
+                if (income.revenues) {
+                    html += `
+                        <div class="financial-item">
+                            <span class="financial-item-label">Revenue</span>
+                            <span class="financial-item-value">${formatLargeNumber(income.revenues.value)}</span>
+                        </div>
+                    `;
+                }
+                if (income.net_income_loss) {
+                    html += `
+                        <div class="financial-item">
+                            <span class="financial-item-label">Net Income</span>
+                            <span class="financial-item-value">${formatLargeNumber(income.net_income_loss.value)}</span>
+                        </div>
+                    `;
+                }
+                if (income.gross_profit) {
+                    html += `
+                        <div class="financial-item">
+                            <span class="financial-item-label">Gross Profit</span>
+                            <span class="financial-item-value">${formatLargeNumber(income.gross_profit.value)}</span>
+                        </div>
+                    `;
+                }
+            }
+
+            if (financials.balance_sheet) {
+                const balance = financials.balance_sheet;
+                if (balance.assets) {
+                    html += `
+                        <div class="financial-item">
+                            <span class="financial-item-label">Total Assets</span>
+                            <span class="financial-item-value">${formatLargeNumber(balance.assets.value)}</span>
+                        </div>
+                    `;
+                }
+                if (balance.liabilities) {
+                    html += `
+                        <div class="financial-item">
+                            <span class="financial-item-label">Total Liabilities</span>
+                            <span class="financial-item-value">${formatLargeNumber(balance.liabilities.value)}</span>
+                        </div>
+                    `;
+                }
+            }
+
+            html += `
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    } else {
+        container.innerHTML = '<p>No financial data available.</p>';
+    }
+}
+
+async function loadNews(ticker) {
+    const cacheKey = `news_${ticker}`;
+    const container = document.getElementById('newsContainer');
+    container.innerHTML = '<p>Loading news...</p>';
+
+    // Check cache first
+    if (cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderNews(data, container);
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/ticker/${ticker}/news?limit=10`);
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.SHORT);
+
+        renderNews(data, container);
+    } catch (error) {
+        console.error('Error loading news:', error);
+        container.innerHTML = '<p>Error loading news.</p>';
+    }
+}
+
+function renderNews(data, container) {
+    if (data.results && data.results.length > 0) {
+        let html = '';
+
+        data.results.forEach(article => {
+            const date = new Date(article.published_utc).toLocaleDateString();
+            html += `
+                <div class="news-article">
+                    <h4><a href="${article.article_url}" target="_blank">${article.title}</a></h4>
+                    <div class="news-meta">
+                        ${article.publisher?.name || 'Unknown'} - ${date}
+                    </div>
+                    <div class="news-description">
+                        ${article.description || ''}
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    } else {
+        container.innerHTML = '<p>No news available.</p>';
+    }
+}
+
+function formatLargeNumber(num) {
+    if (num >= 1e12) return `$${(num / 1e12).toFixed(2)}T`;
+    if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
+    if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
+    if (num >= 1e3) return `$${(num / 1e3).toFixed(2)}K`;
+    return `$${num.toFixed(2)}`;
+}
+
+function showLoading(show) {
+    const loading = document.getElementById('loading');
+    if (show) {
+        loading.classList.remove('hidden');
+    } else {
+        loading.classList.add('hidden');
+    }
+}
+
+async function loadMarketStatus() {
+    const cacheKey = 'market_status';
+
+    // Check cache first
+    if (cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderMarketStatus(data);
+        return;
+    }
+
+    try {
+        const response = await fetch('http://localhost:5000/api/market-status');
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.DAILY);
+
+        renderMarketStatus(data);
+    } catch (error) {
+        console.error('Error loading market status:', error);
+        document.getElementById('marketStatusText').textContent = 'Unknown';
+    }
+}
+
+function renderMarketStatus(data) {
+    const statusText = document.getElementById('marketStatusText');
+    if (data.market === 'open') {
+        statusText.textContent = 'Open';
+        statusText.classList.add('status-open');
+        statusText.classList.remove('status-closed');
+    } else {
+        statusText.textContent = 'Closed';
+        statusText.classList.add('status-closed');
+        statusText.classList.remove('status-open');
+    }
+}
+
+async function loadDividends(ticker) {
+    const cacheKey = `dividends_${ticker}`;
+    const container = document.getElementById('dividendsContainer');
+    container.innerHTML = '<p>Loading dividend data...</p>';
+
+    // Check cache first
+    if (cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderDividends(data, container);
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/ticker/${ticker}/dividends?limit=20`);
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.STATIC);
+
+        renderDividends(data, container);
+    } catch (error) {
+        console.error('Error loading dividends:', error);
+        container.innerHTML = '<p>Error loading dividend data.</p>';
+    }
+}
+
+function renderDividends(data, container) {
+    if (data.results && data.results.length > 0) {
+        let html = '<table class="data-table"><thead><tr>';
+        html += '<th>Ex-Dividend Date</th>';
+        html += '<th>Pay Date</th>';
+        html += '<th>Amount</th>';
+        html += '<th>Frequency</th>';
+        html += '</tr></thead><tbody>';
+
+        data.results.forEach(dividend => {
+            const exDate = new Date(dividend.ex_dividend_date).toLocaleDateString();
+            const payDate = dividend.pay_date ? new Date(dividend.pay_date).toLocaleDateString() : 'N/A';
+            const frequency = getFrequencyText(dividend.frequency);
+
+            html += '<tr>';
+            html += `<td>${exDate}</td>`;
+            html += `<td>${payDate}</td>`;
+            html += `<td>$${dividend.cash_amount.toFixed(4)}</td>`;
+            html += `<td>${frequency}</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } else {
+        container.innerHTML = '<p>No dividend data available for this stock.</p>';
+    }
+}
+
+async function loadSplits(ticker) {
+    const cacheKey = `splits_${ticker}`;
+    const container = document.getElementById('splitsContainer');
+    container.innerHTML = '<p>Loading stock split data...</p>';
+
+    // Check cache first
+    if (cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderSplits(data, container);
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/ticker/${ticker}/splits?limit=20`);
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.STATIC);
+
+        renderSplits(data, container);
+    } catch (error) {
+        console.error('Error loading splits:', error);
+        container.innerHTML = '<p>Error loading stock split data.</p>';
+    }
+}
+
+function renderSplits(data, container) {
+    if (data.results && data.results.length > 0) {
+        let html = '<table class="data-table"><thead><tr>';
+        html += '<th>Execution Date</th>';
+        html += '<th>Split Ratio</th>';
+        html += '<th>Type</th>';
+        html += '</tr></thead><tbody>';
+
+        data.results.forEach(split => {
+            const execDate = new Date(split.execution_date).toLocaleDateString();
+            const ratio = `${split.split_to}:${split.split_from}`;
+            const type = split.split_from > split.split_to ? 'Reverse Split' : 'Forward Split';
+
+            html += '<tr>';
+            html += `<td>${execDate}</td>`;
+            html += `<td>${ratio}</td>`;
+            html += `<td>${type}</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } else {
+        container.innerHTML = '<p>No stock split data available for this stock.</p>';
+    }
+}
+
+async function loadRelatedCompanies(ticker) {
+    const cacheKey = `related_${ticker}`;
+    const container = document.getElementById('relatedContainer');
+    container.innerHTML = '<p>Loading related companies...</p>';
+
+    // Check cache first
+    if (cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderRelatedCompanies(data, container);
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/ticker/${ticker}/related`);
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.STATIC);
+
+        renderRelatedCompanies(data, container);
+    } catch (error) {
+        console.error('Error loading related companies:', error);
+        container.innerHTML = '<p>Related companies feature may require a paid API plan.</p>';
+    }
+}
+
+function renderRelatedCompanies(data, container) {
+    if (data.results && data.results.length > 0) {
+        let html = '<div class="related-grid">';
+
+        data.results.forEach(company => {
+            html += `
+                <div class="related-card">
+                    <h4>${company.ticker}</h4>
+                    <p>${company.name || 'N/A'}</p>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+    } else {
+        container.innerHTML = '<p>No related companies data available. This feature may require a paid API plan.</p>';
+    }
+}
+
+function getFrequencyText(frequency) {
+    const frequencies = {
+        0: 'One-time',
+        1: 'Annual',
+        2: 'Semi-Annual',
+        4: 'Quarterly',
+        12: 'Monthly',
+        24: 'Bi-Monthly',
+        52: 'Weekly'
+    };
+    return frequencies[frequency] || 'Unknown';
+}
