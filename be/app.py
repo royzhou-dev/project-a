@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from polygon_api import PolygonAPI
+from chat_routes import register_chat_routes
 import os
 
 app = Flask(__name__, static_folder='../fe', static_url_path='')
@@ -102,6 +103,9 @@ def get_market_status():
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# Register chat routes
+register_chat_routes(app)
 
 if __name__ == '__main__':
     from config import PORT
