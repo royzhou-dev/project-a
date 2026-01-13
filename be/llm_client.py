@@ -1,11 +1,10 @@
-from openai import OpenAI
-import tiktoken
+import google.generativeai as genai
 from datetime import datetime, timedelta
-from config import OPENAI_API_KEY, CHAT_MODEL, MAX_CONTEXT_LENGTH
+from config import GEMINI_API_KEY, GEMINI_MODEL, MAX_CONTEXT_LENGTH
 
 
-class OpenAIClient:
-    """Handles interactions with OpenAI GPT-4 API"""
+class GeminiClient:
+    """Handles interactions with Google Gemini API"""
 
     SYSTEM_PROMPT = """You are an expert stock market analyst assistant integrated into a trading platform.
 You have access to:
@@ -28,13 +27,16 @@ When answering questions:
 Always ground your responses in the provided data. If information is not available, say so clearly."""
 
     def __init__(self, api_key=None, model=None):
-        self.client = OpenAI(api_key=api_key or OPENAI_API_KEY)
-        self.model = model or CHAT_MODEL
-        self.encoding = tiktoken.get_encoding("cl100k_base")
+        genai.configure(api_key=api_key or GEMINI_API_KEY)
+        self.model_name = model or GEMINI_MODEL
+        self.model = genai.GenerativeModel(
+            model_name=self.model_name,
+            system_instruction=self.SYSTEM_PROMPT
+        )
 
     def generate_response(self, prompt, conversation_history=None):
         """
-        Generate a response from GPT-4
+        Generate a response from Gemini
 
         Args:
             prompt: User prompt with context
@@ -44,26 +46,14 @@ Always ground your responses in the provided data. If information is not availab
             Generated response text
         """
         try:
-            messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
-
-            # Add conversation history
-            if conversation_history:
-                messages.extend(conversation_history)
-
-            # Add current prompt
-            messages.append({"role": "user", "content": prompt})
-
-            # Trim if too long
-            messages = self._trim_messages(messages)
-
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1000
+            # Convert history to Gemini format and start chat
+            chat = self.model.start_chat(
+                history=self._convert_history(conversation_history)
             )
 
-            return response.choices[0].message.content
+            # Generate response
+            response = chat.send_message(prompt)
+            return response.text
 
         except Exception as e:
             print(f"Error generating response: {e}")
@@ -71,7 +61,7 @@ Always ground your responses in the provided data. If information is not availab
 
     def stream_response(self, prompt, conversation_history=None):
         """
-        Generate a streaming response from GPT-4
+        Generate a streaming response from Gemini
 
         Args:
             prompt: User prompt with context
@@ -81,59 +71,49 @@ Always ground your responses in the provided data. If information is not availab
             Response chunks as they arrive
         """
         try:
-            messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
-
-            # Add conversation history
-            if conversation_history:
-                messages.extend(conversation_history)
-
-            # Add current prompt
-            messages.append({"role": "user", "content": prompt})
-
-            # Trim if too long
-            messages = self._trim_messages(messages)
-
-            stream = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1000,
-                stream=True
+            # Convert history to Gemini format and start chat
+            chat = self.model.start_chat(
+                history=self._convert_history(conversation_history)
             )
 
-            for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+            # Stream response
+            response = chat.send_message(prompt, stream=True)
+
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
 
         except Exception as e:
             print(f"Error streaming response: {e}")
             yield f"I encountered an error processing your request. Please try again."
 
-    def count_tokens(self, text):
-        """Count tokens in text"""
-        return len(self.encoding.encode(text))
+    def _convert_history(self, history):
+        """
+        Convert OpenAI-style history to Gemini format
 
-    def _trim_messages(self, messages):
-        """Trim messages to fit within context window"""
-        # Calculate total tokens
-        total_tokens = sum(self.count_tokens(str(msg['content'])) for msg in messages)
+        Args:
+            history: List of messages with 'role' and 'content' keys
 
-        # If within limit, return as-is
-        if total_tokens <= MAX_CONTEXT_LENGTH:
-            return messages
+        Returns:
+            List of Gemini-formatted messages
+        """
+        if not history:
+            return []
 
-        # Keep system message and trim conversation history
-        trimmed = [messages[0]]  # System prompt
+        gemini_history = []
+        for msg in history:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
 
-        # Add messages from most recent, working backwards
-        for msg in reversed(messages[1:]):
-            msg_tokens = self.count_tokens(str(msg['content']))
-            if total_tokens - msg_tokens > MAX_CONTEXT_LENGTH:
-                total_tokens -= msg_tokens
-            else:
-                trimmed.insert(1, msg)
+            # Gemini uses 'user' and 'model' roles
+            gemini_role = 'user' if role == 'user' else 'model'
 
-        return trimmed
+            gemini_history.append({
+                'role': gemini_role,
+                'parts': [content]
+            })
+
+        return gemini_history
 
 
 class ConversationManager:

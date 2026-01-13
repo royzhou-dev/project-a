@@ -1,6 +1,6 @@
 from scraper import ArticleScraper
 from rag_pipeline import EmbeddingGenerator, VectorStore, ContextRetriever
-from llm_client import OpenAIClient, ConversationManager
+from llm_client import GeminiClient, ConversationManager
 import concurrent.futures
 import hashlib
 
@@ -13,7 +13,7 @@ class ChatService:
         self.embedding_gen = EmbeddingGenerator()
         self.vector_store = VectorStore()
         self.context_retriever = ContextRetriever()
-        self.llm_client = OpenAIClient()
+        self.llm_client = GeminiClient()
         self.conversation_manager = ConversationManager()
 
     def process_message(self, ticker, message, frontend_context, conversation_id):
@@ -111,7 +111,7 @@ class ChatService:
                     "full_content": content  # Store full content in metadata
                 }
 
-                # Store in Pinecone
+                # Store in FAISS
                 success = self.vector_store.upsert_document(doc_id, embedding, metadata)
 
                 if success:
@@ -138,6 +138,10 @@ class ChatService:
                     results['skipped'] += 1
                 elif status == 'failed':
                     results['failed'] += 1
+
+        # Save FAISS index after batch operations
+        if results['embedded'] > 0:
+            self.vector_store.save()
 
         return results
 

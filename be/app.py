@@ -3,6 +3,7 @@ from flask_cors import CORS
 from polygon_api import PolygonAPI
 from chat_routes import register_chat_routes
 import os
+import atexit
 
 app = Flask(__name__, static_folder='../fe', static_url_path='')
 CORS(app)
@@ -106,6 +107,20 @@ def get_market_status():
 
 # Register chat routes
 register_chat_routes(app)
+
+# Graceful shutdown handler for FAISS
+from chat_service import chat_service
+
+def shutdown_handler():
+    """Save FAISS index on graceful shutdown"""
+    print("Shutting down gracefully, saving FAISS index...")
+    try:
+        chat_service.vector_store.save()
+        print("FAISS index saved successfully")
+    except Exception as e:
+        print(f"Error saving FAISS index on shutdown: {e}")
+
+atexit.register(shutdown_handler)
 
 if __name__ == '__main__':
     from config import PORT
