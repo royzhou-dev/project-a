@@ -64,22 +64,21 @@ Project A is a personal stock trading assistant that provides users with compreh
 ### Core Stock Data
 1. **Stock Selection**: Searchable dropdown with thousands of tickers from `company_tickers.json`
 2. **Market Status**: Real-time market open/closed indicator
-3. **Overview Tab**: Key metrics (price, volume, market cap, open, high, low)
-4. **Chart Tab**: Interactive price charts with multiple timeframes (1M, 3M, 6M, 1Y, 5Y)
+3. **Dark Mode**: Theme toggle with system preference detection, persisted to localStorage
+4. **Overview Tab**: Key metrics (price, volume, market cap, open, high, low) + price chart
 5. **Financials Tab**: Quarterly/annual financial statements (revenue, net income, assets, liabilities)
 6. **Dividends Tab**: Historical dividend payment data with ex-dates and pay dates
 7. **Splits Tab**: Stock split history with ratios and types
 8. **News Tab**: Latest news articles related to selected stocks
-9. **Related Tab**: Similar/related companies (may require paid API)
 
 ### AI Chatbot Assistant
-10. **Intelligent Q&A**: Ask natural language questions about stocks and receive data-driven answers
-11. **Context-Aware**: Chatbot has access to all stock data visible in the frontend (overview, financials, news, etc.)
-12. **RAG Pipeline**: Full news article scraping and semantic search using FAISS local vector database
-13. **Streaming Responses**: Real-time LLM output with smooth user experience
-14. **Conversation History**: Maintains context within chat sessions
-15. **Automatic Scraping**: Articles are scraped and indexed when News tab is loaded
-16. **Sliding Sidebar UI**: Non-intrusive chat interface that slides in from the right
+9. **Intelligent Q&A**: Ask natural language questions about stocks and receive data-driven answers
+10. **Context-Aware**: Chatbot has access to all stock data visible in the frontend (overview, financials, news, etc.)
+11. **RAG Pipeline**: Full news article scraping and semantic search using FAISS local vector database
+12. **Streaming Responses**: Real-time LLM output with smooth user experience
+13. **Conversation History**: Maintains context within chat sessions
+14. **Automatic Scraping**: Articles are scraped and indexed automatically when a stock is selected
+15. **Sliding Sidebar UI**: Non-intrusive chat interface that slides in from the right
 
 ## Data Flow
 
@@ -101,13 +100,31 @@ Project A is a personal stock trading assistant that provides users with compreh
    - Assemble comprehensive prompt with stock data + RAG contexts + conversation history
    - Stream Gemini response back to frontend
 5. Frontend displays streaming response in chat UI
-6. When News tab loads, articles are scraped, embedded, and saved to local FAISS index
+
+### RAG Data Sources
+The chatbot receives context from two different sources:
+
+| Data Type | Storage | How it reaches LLM |
+|-----------|---------|-------------------|
+| News articles | FAISS vector DB (`be/faiss_index/`) | RAG semantic search on `full_content` |
+| Overview/Price | Frontend cache (browser memory) | Passed directly in each request |
+| Financials | Frontend cache (browser memory) | Passed if query contains financial keywords |
+| Dividends | Frontend cache (browser memory) | Passed if query mentions "dividend" |
+| Splits | Frontend cache (browser memory) | Passed if query mentions "split" |
+
+**News articles** are the only data embedded into vectors. When a stock is selected:
+1. `preloadNewsForRAG()` fetches news metadata from Polygon.io
+2. `scrapeAndEmbedArticles()` sends articles to backend for scraping
+3. Backend scrapes full article content, generates embeddings, and stores in FAISS
+4. Metadata (title, source, URL, `full_content`) saved to `be/faiss_index/metadata.json`
+
+**Financial data** (overview, financials, dividends, splits) is ephemeral - fetched from Polygon.io, cached in browser memory, and sent fresh with each chat message.
 
 ## Caching Strategy
 
 The application uses client-side caching to respect Polygon.io's free tier rate limits (5 API calls/minute):
 
-- **Static data** (cache until page refresh): Ticker details, dividends, splits, related companies
+- **Static data** (cache until page refresh): Ticker details, dividends, splits
 - **Daily data** (24-hour cache): Previous close, market status, chart data
 - **Moderate** (30-minute cache): Financial statements
 - **Short** (15-minute cache): News articles
@@ -126,6 +143,8 @@ All stock data fetched from Polygon.io API (https://polygon.io/):
 - `/v2/reference/news` - News articles (metadata)
 - `/vX/reference/financials` - Financial statements
 - `/v1/marketstatus/now` - Market status
+
+Note: Related companies endpoint (`/v1/related-companies/{ticker}`) was removed due to limited free tier data.
 
 ### Google Gemini API
 AI chatbot and embeddings (https://aistudio.google.com/) - **100% FREE**:
@@ -199,24 +218,29 @@ RAG_TOP_K=5
 - `GET /api/chat/conversations/<id>` - Get conversation history
 - `DELETE /api/chat/clear/<id>` - Clear conversation
 - `GET /api/chat/health` - Health check for chat service
+- `GET /api/chat/debug/chunks` - Debug endpoint to view stored RAG chunks
+  - Query params: `ticker` (optional filter), `limit` (default 50)
+  - Returns: `{total, returned, index_stats, chunks: [{id, doc_id, ticker, title, source, full_content, ...}]}`
 
 ## Important Implementation Notes
 
 ### AI Chatbot Architecture
 - **Vanilla JS Maintained**: Chat UI built with vanilla JavaScript following existing patterns (no frameworks)
-- **RAG Strategy**: On-demand scraping when News tab loaded, embeddings saved to local FAISS index
-- **Context Assembly**: Chatbot receives full stock context from frontend (all cached data)
+- **RAG Strategy**: Automatic scraping when stock is selected, embeddings saved to local FAISS index
+- **Shared VectorStore**: `ChatService` and `ContextRetriever` share the same `VectorStore` instance to ensure consistency
+- **Context Assembly**: Chatbot receives full stock context from frontend (all cached data) + RAG results from FAISS
 - **Streaming**: Server-Sent Events for real-time LLM response streaming
 - **Persistence**: FAISS index saved automatically after batch operations and on graceful shutdown
-- **Error Handling**: Graceful fallback to article descriptions if scraping fails
+- **Error Handling**: Graceful fallback to article descriptions if scraping fails; traceback logging for debugging
 - **Cost Optimization**: Uses 100% free Google Gemini APIs for chat and embeddings, FAISS is free and local, client-side caching reduces API calls
 
 ### Code Organization Principles
 - Backend modules are fully independent and can be used separately
-- Frontend chat code is isolated in dedicated section of app.js (lines 982+)
+- Frontend chat code is isolated in dedicated section of app.js
 - All existing functionality remains unchanged (additive implementation)
-- Chat styling isolated in dedicated CSS section (lines 510+)
+- Chat styling isolated in dedicated CSS section
 - No breaking changes to existing API endpoints
+- Design system documented in `.design-engineer/system.md`
 
 ### Development Guidelines
 - **No Frameworks**: Keep frontend pure vanilla JavaScript
@@ -229,6 +253,8 @@ RAG_TOP_K=5
 ## Future Enhancements
 
 - ~~AI-powered stock analysis and recommendations~~ ✅ **IMPLEMENTED**
+- ~~Dark mode~~ ✅ **IMPLEMENTED**
+- Recently viewed stocks (localStorage persistence)
 - Portfolio tracking with AI insights
 - Real-time price updates (WebSocket integration)
 - Advanced technical indicators with AI interpretation

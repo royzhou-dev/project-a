@@ -196,10 +196,36 @@ function highlightItem(index) {
 
 // Load tickers on page load
 document.addEventListener('DOMContentLoaded', async () => {
+    initTheme();
     await loadTickers();
     await loadMarketStatus();
     setupEventListeners();
 });
+
+// Theme toggle functionality
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    if (savedTheme) {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    } else if (prefersDark) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', toggleTheme);
+    }
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+}
 
 async function loadTickers() {
     try {
@@ -356,8 +382,6 @@ function switchTab(tabName) {
         loadDividends(currentTicker);
     } else if (tabName === 'splits' && currentTicker) {
         loadSplits(currentTicker);
-    } else if (tabName === 'related' && currentTicker) {
-        loadRelatedCompanies(currentTicker);
     }
 }
 
@@ -379,6 +403,9 @@ async function loadStockData(ticker) {
         } else if (activeTab === 'news') {
             await loadNews(ticker);
         }
+
+        // Preload news and trigger article scraping for RAG in background
+        preloadNewsForRAG(ticker);
     } catch (error) {
         console.error('Error loading stock data:', error);
         alert('Error loading stock data. Please check your API key and try again.');
@@ -927,52 +954,6 @@ function renderSplits(data, container) {
     }
 }
 
-async function loadRelatedCompanies(ticker) {
-    const cacheKey = `related_${ticker}`;
-    const container = document.getElementById('relatedContainer');
-    container.innerHTML = '<p>Loading related companies...</p>';
-
-    // Check cache first
-    if (cache.has(cacheKey)) {
-        const data = cache.get(cacheKey);
-        renderRelatedCompanies(data, container);
-        return;
-    }
-
-    try {
-        const response = await fetch(`${API_BASE}/ticker/${ticker}/related`);
-        const data = await response.json();
-
-        // Store in cache
-        cache.set(cacheKey, data, CACHE_TTL.STATIC);
-
-        renderRelatedCompanies(data, container);
-    } catch (error) {
-        console.error('Error loading related companies:', error);
-        container.innerHTML = '<p>Related companies feature may require a paid API plan.</p>';
-    }
-}
-
-function renderRelatedCompanies(data, container) {
-    if (data.results && data.results.length > 0) {
-        let html = '<div class="related-grid">';
-
-        data.results.forEach(company => {
-            html += `
-                <div class="related-card">
-                    <h4>${company.ticker}</h4>
-                    <p>${company.name || 'N/A'}</p>
-                </div>
-            `;
-        });
-
-        html += '</div>';
-        container.innerHTML = html;
-    } else {
-        container.innerHTML = '<p>No related companies data available. This feature may require a paid API plan.</p>';
-    }
-}
-
 function getFrequencyText(frequency) {
     const frequencies = {
         0: 'One-time',
@@ -1149,6 +1130,31 @@ function removeMessage(messageId) {
     const messageDiv = document.getElementById(messageId);
     if (messageDiv) {
         messageDiv.remove();
+    }
+}
+
+// Preload news data and trigger RAG scraping when stock is selected
+async function preloadNewsForRAG(ticker) {
+    const cacheKey = `news_${ticker}`;
+
+    // Skip if already cached
+    if (cache.has(cacheKey)) {
+        // Trigger scraping with cached data
+        scrapeAndEmbedArticles();
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/ticker/${ticker}/news?limit=10`);
+        const data = await response.json();
+
+        // Store in cache
+        cache.set(cacheKey, data, CACHE_TTL.SHORT);
+
+        // Trigger article scraping in background
+        scrapeAndEmbedArticles();
+    } catch (error) {
+        console.error('Error preloading news for RAG:', error);
     }
 }
 

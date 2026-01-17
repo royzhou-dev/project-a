@@ -11,9 +11,19 @@
         <header>
             <div class="header-content">
                 <h1>Stock Trading Assistant</h1>
-                <div id="marketStatus" class="market-status">
-                    <span class="status-label">Market:</span>
-                    <span id="marketStatusText" class="status-text">Loading...</span>
+                <div class="header-actions">
+                    <div id="marketStatus" class="market-status">
+                        <span class="status-label">Market:</span>
+                        <span id="marketStatusText" class="status-text">Loading...</span>
+                    </div>
+                    <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">
+                        <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                        </svg>
+                        <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                    </button>
                 </div>
             </div>
         </header>
@@ -41,7 +51,6 @@
                 <button class="tab-button" data-tab="dividends">Dividends</button>
                 <button class="tab-button" data-tab="splits">Splits</button>
                 <button class="tab-button" data-tab="news">News</button>
-                <button class="tab-button" data-tab="related">Related</button>
             </div>
 
             <div class="tab-content">
@@ -110,12 +119,6 @@
                 <div id="news" class="tab-pane">
                     <div id="newsContainer">
                         <p>Loading news...</p>
-                    </div>
-                </div>
-
-                <div id="related" class="tab-pane">
-                    <div id="relatedContainer">
-                        <p>Loading related companies...</p>
                     </div>
                 </div>
             </div>
