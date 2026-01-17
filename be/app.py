@@ -89,14 +89,6 @@ def get_splits(ticker):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/ticker/<ticker>/related', methods=['GET'])
-def get_related(ticker):
-    try:
-        data = polygon.get_related_companies(ticker.upper())
-        return jsonify(data)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/api/market-status', methods=['GET'])
 def get_market_status():
     try:

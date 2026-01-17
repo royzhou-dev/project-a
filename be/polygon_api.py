@@ -88,9 +88,3 @@ class PolygonAPI:
         response = requests.get(url, params=params)
         return response.json()
 
-    def get_related_companies(self, ticker):
-        """Get related/similar companies"""
-        url = f"{BASE_URL}/v1/related-companies/{ticker}"
-        params = {"apiKey": self.api_key}
-        response = requests.get(url, params=params)
-        return response.json()
