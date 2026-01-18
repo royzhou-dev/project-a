@@ -10,3 +10,8 @@ numpy==1.24.3
 beautifulsoup4==4.12.3
 lxml==5.1.0
 tenacity==8.2.3
+
+# Sentiment Analysis
+transformers==4.36.0
+torch==2.1.0
+praw==7.7.1

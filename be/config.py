@@ -19,3 +19,15 @@ FAISS_INDEX_PATH = os.getenv('FAISS_INDEX_PATH',
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-004')
 MAX_CONTEXT_LENGTH = int(os.getenv('MAX_CONTEXT_LENGTH', 8000))
 RAG_TOP_K = int(os.getenv('RAG_TOP_K', 5))
+
+# Sentiment Analysis configuration
+FINBERT_MODEL = os.getenv('FINBERT_MODEL', 'ProsusAI/finbert')
+SENTIMENT_CACHE_TTL = int(os.getenv('SENTIMENT_CACHE_TTL', 15))  # minutes
+
+# Reddit API (free - get credentials at reddit.com/prefs/apps)
+REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID', '')
+REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET', '')
+REDDIT_USER_AGENT = os.getenv('REDDIT_USER_AGENT', 'StockAssistant/1.0')
+
+# Twitter API (optional - requires paid tier $100+/month)
+TWITTER_BEARER_TOKEN = os.getenv('TWITTER_BEARER_TOKEN', '')

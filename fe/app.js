@@ -400,6 +400,8 @@ function switchTab(tabName) {
         loadDividends(currentTicker);
     } else if (tabName === 'splits' && currentTicker) {
         loadSplits(currentTicker);
+    } else if (tabName === 'sentiment' && currentTicker) {
+        loadSentiment(currentTicker);
     }
 }
 
@@ -1404,7 +1406,8 @@ async function sendChatMessage() {
         financials: cache.get(`financials_${currentTicker}`),
         news: cache.get(`news_${currentTicker}`),
         dividends: cache.get(`dividends_${currentTicker}`),
-        splits: cache.get(`splits_${currentTicker}`)
+        splits: cache.get(`splits_${currentTicker}`),
+        sentiment: cache.get(`sentiment_${currentTicker}`)
     };
 
     try {
@@ -1560,4 +1563,272 @@ function setupChatListeners() {
             sendChatMessage();
         }
     });
+
+    // Setup sentiment listeners
+    setupSentimentListeners();
+}
+
+// ============================================
+// SENTIMENT ANALYSIS FUNCTIONALITY
+// ============================================
+
+let sentimentState = {
+    currentFilter: 'all',
+    posts: [],
+    isLoading: false
+};
+
+function setupSentimentListeners() {
+    // Refresh button
+    const refreshBtn = document.getElementById('refreshSentiment');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            if (currentTicker) {
+                // Clear cache and reload
+                const cacheKey = `sentiment_${currentTicker}`;
+                delete cache.data[cacheKey];
+                loadSentiment(currentTicker, true);
+            }
+        });
+    }
+
+    // Filter buttons
+    const filterBtns = document.querySelectorAll('.posts-filter .filter-btn');
+    filterBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            filterBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            sentimentState.currentFilter = btn.dataset.filter;
+            renderSentimentPosts(sentimentState.posts);
+        });
+    });
+}
+
+async function loadSentiment(ticker, forceRefresh = false) {
+    const cacheKey = `sentiment_${ticker}`;
+    const container = document.getElementById('sentimentPostsContainer');
+
+    // Show loading state
+    if (!forceRefresh) {
+        container.innerHTML = '<p class="loading-text">Analyzing social media sentiment...</p>';
+    }
+
+    // Update refresh button state
+    const refreshBtn = document.getElementById('refreshSentiment');
+    if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add('loading');
+    }
+
+    sentimentState.isLoading = true;
+
+    // Check cache first (unless forcing refresh)
+    if (!forceRefresh && cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderSentiment(data);
+        sentimentState.isLoading = false;
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('loading');
+        }
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/sentiment/analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticker: ticker })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Cache with short TTL (15 minutes)
+        cache.set(cacheKey, data, CACHE_TTL.SHORT);
+
+        renderSentiment(data);
+
+    } catch (error) {
+        console.error('Error loading sentiment:', error);
+        container.innerHTML = '<p class="error-text">Error loading sentiment data. Please try again.</p>';
+        resetSentimentUI();
+    } finally {
+        sentimentState.isLoading = false;
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('loading');
+        }
+    }
+}
+
+function renderSentiment(data) {
+    const aggregate = data.aggregate;
+
+    // Update gauge
+    updateSentimentGauge(aggregate.score);
+
+    // Update label and confidence
+    const labelEl = document.getElementById('sentimentLabel');
+    labelEl.textContent = aggregate.label.toUpperCase();
+    labelEl.className = 'sentiment-label ' + aggregate.label;
+
+    const confidenceEl = document.getElementById('sentimentConfidence');
+    confidenceEl.textContent = `${(aggregate.confidence * 100).toFixed(0)}% confidence`;
+
+    // Update stats
+    document.getElementById('sentimentPostCount').textContent = aggregate.post_count;
+    document.getElementById('sentimentLastUpdated').textContent = new Date().toLocaleTimeString();
+
+    // Update source breakdown
+    const sources = aggregate.sources || {};
+    updateSourceItem('stocktwitsSource', sources.stocktwits || 0, aggregate.post_count);
+    updateSourceItem('redditSource', sources.reddit || 0, aggregate.post_count);
+    updateSourceItem('twitterSource', sources.twitter || 0, aggregate.post_count);
+
+    // Store posts and render
+    sentimentState.posts = data.posts || [];
+    renderSentimentPosts(sentimentState.posts);
+}
+
+function updateSentimentGauge(score) {
+    // Score ranges from -1 (bearish) to +1 (bullish)
+    // Map to rotation: -90deg (bearish) to +90deg (bullish)
+    const rotation = score * 90;
+
+    const needle = document.getElementById('gaugeNeedle');
+    if (needle) {
+        needle.style.transform = `rotate(${rotation}deg)`;
+    }
+
+    // Update gauge fill color based on sentiment
+    const fill = document.getElementById('gaugeFill');
+    if (fill) {
+        if (score > 0.2) {
+            fill.className = 'gauge-fill bullish';
+        } else if (score < -0.2) {
+            fill.className = 'gauge-fill bearish';
+        } else {
+            fill.className = 'gauge-fill neutral';
+        }
+    }
+}
+
+function updateSourceItem(elementId, count, total) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    const countEl = element.querySelector('.source-count');
+    if (countEl) {
+        countEl.textContent = count;
+    }
+}
+
+function renderSentimentPosts(posts) {
+    const container = document.getElementById('sentimentPostsContainer');
+
+    if (!posts || posts.length === 0) {
+        container.innerHTML = '<p class="no-data-text">No sentiment data available for this stock.</p>';
+        return;
+    }
+
+    // Apply filter
+    let filteredPosts = posts;
+    if (sentimentState.currentFilter !== 'all') {
+        filteredPosts = posts.filter(post => {
+            const label = post.sentiment?.label || 'neutral';
+            return label === sentimentState.currentFilter;
+        });
+    }
+
+    if (filteredPosts.length === 0) {
+        container.innerHTML = `<p class="no-data-text">No ${sentimentState.currentFilter} posts found.</p>`;
+        return;
+    }
+
+    let html = '';
+    filteredPosts.forEach(post => {
+        const sentimentLabel = post.sentiment?.label || 'neutral';
+        const sentimentScore = post.sentiment?.score || 0;
+        const scorePercent = (sentimentScore * 100).toFixed(0);
+        const timestamp = post.timestamp ? formatRelativeTime(post.timestamp) : '';
+        const platform = post.platform || 'unknown';
+        const engagement = post.engagement || {};
+
+        html += `
+            <div class="sentiment-post ${sentimentLabel}">
+                <div class="post-header">
+                    <span class="post-platform">${getPlatformIcon(platform)} ${platform}</span>
+                    <span class="post-sentiment ${sentimentLabel}">
+                        ${sentimentLabel} (${scorePercent}%)
+                    </span>
+                </div>
+                <p class="post-content">${escapeHtml(post.content || '')}</p>
+                <div class="post-meta">
+                    <span class="post-author">@${escapeHtml(post.author || 'unknown')}</span>
+                    <span class="post-time">${timestamp}</span>
+                    <span class="post-engagement">
+                        ${engagement.likes || 0} likes ${engagement.comments ? `· ${engagement.comments} comments` : ''}
+                    </span>
+                </div>
+                ${post.url ? `<a href="${post.url}" target="_blank" class="post-link">View original</a>` : ''}
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+}
+
+function getPlatformIcon(platform) {
+    const icons = {
+        'stocktwits': '📈',
+        'reddit': '🔴',
+        'twitter': '🐦'
+    };
+    return icons[platform] || '💬';
+}
+
+function formatRelativeTime(timestamp) {
+    try {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return 'just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return date.toLocaleDateString();
+    } catch {
+        return '';
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function resetSentimentUI() {
+    document.getElementById('sentimentLabel').textContent = '--';
+    document.getElementById('sentimentLabel').className = 'sentiment-label';
+    document.getElementById('sentimentConfidence').textContent = '--';
+    document.getElementById('sentimentPostCount').textContent = '--';
+    document.getElementById('sentimentLastUpdated').textContent = '--';
+
+    updateSourceItem('stocktwitsSource', 0, 0);
+    updateSourceItem('redditSource', 0, 0);
+    updateSourceItem('twitterSource', 0, 0);
+
+    const needle = document.getElementById('gaugeNeedle');
+    if (needle) {
+        needle.style.transform = 'rotate(0deg)';
+    }
 }

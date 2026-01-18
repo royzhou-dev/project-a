@@ -188,6 +188,20 @@ class ChatService:
             if splits:
                 prompt_parts.append(self._format_splits(splits))
 
+        # Add sentiment if relevant to query
+        sentiment_keywords = ['sentiment', 'bullish', 'bearish', 'feel', 'opinion',
+                             'mood', 'social', 'twitter', 'reddit', 'stocktwits', 'buzz']
+        if any(keyword in query.lower() for keyword in sentiment_keywords):
+            # Retrieve sentiment posts from RAG
+            sentiment_contexts = self._retrieve_sentiment_context(query, ticker)
+            if sentiment_contexts:
+                prompt_parts.append(self._format_sentiment_contexts(sentiment_contexts))
+
+            # Include aggregate sentiment from frontend if available
+            sentiment_data = frontend_context.get('sentiment')
+            if sentiment_data:
+                prompt_parts.append(self._format_aggregate_sentiment(sentiment_data))
+
         # Combine all context
         context_str = "\n\n---\n\n".join(prompt_parts) if prompt_parts else "No additional context available."
 
@@ -305,3 +319,67 @@ Please provide a data-driven answer based on the context above."""
     def _hash_url(self, url):
         """Generate a short hash for URL"""
         return hashlib.md5(url.encode()).hexdigest()[:12]
+
+    def _retrieve_sentiment_context(self, query, ticker):
+        """Retrieve sentiment posts from FAISS"""
+        try:
+            query_embedding = self.embedding_gen.generate_query_embedding(query)
+            if not query_embedding:
+                return []
+
+            matches = self.vector_store.search(
+                query_embedding=query_embedding,
+                ticker=ticker,
+                namespace="sentiment",
+                top_k=5
+            )
+
+            contexts = []
+            for match in matches:
+                contexts.append({
+                    'score': match.score,
+                    'metadata': match.metadata,
+                    'id': match.id
+                })
+
+            return contexts
+        except Exception as e:
+            print(f"Error retrieving sentiment context: {e}")
+            return []
+
+    def _format_sentiment_contexts(self, contexts):
+        """Format sentiment posts from RAG"""
+        if not contexts:
+            return ""
+
+        formatted = ["Relevant Social Media Posts:"]
+
+        for ctx in contexts[:5]:
+            metadata = ctx['metadata']
+            platform = metadata.get('platform', 'unknown')
+            sentiment = metadata.get('sentiment_label', 'neutral')
+            content = metadata.get('full_content', metadata.get('content', ''))[:300]
+            author = metadata.get('author', 'unknown')
+            likes = metadata.get('likes', 0)
+
+            formatted.append(f"\n- [{platform.upper()}] @{author} ({sentiment}, {likes} likes)")
+            formatted.append(f"  \"{content}...\"")
+
+        return "\n".join(formatted)
+
+    def _format_aggregate_sentiment(self, sentiment_data):
+        """Format aggregate sentiment data from frontend"""
+        aggregate = sentiment_data.get('aggregate', {})
+        if not aggregate:
+            return ""
+
+        label = aggregate.get('label', 'neutral')
+        score = aggregate.get('score', 0)
+        confidence = aggregate.get('confidence', 0)
+        post_count = aggregate.get('post_count', 0)
+        sources = aggregate.get('sources', {})
+
+        return f"""Current Social Media Sentiment:
+- Overall: {label.upper()} (score: {score:.2f}, confidence: {confidence:.0%})
+- Posts analyzed: {post_count}
+- Sources: StockTwits ({sources.get('stocktwits', 0)}), Reddit ({sources.get('reddit', 0)}), Twitter ({sources.get('twitter', 0)})"""
