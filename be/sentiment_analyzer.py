@@ -3,6 +3,10 @@ FinBERT-based sentiment analyzer for financial text.
 Uses ProsusAI/finbert model for classifying text as positive, negative, or neutral.
 """
 
+import warnings
+# Suppress huggingface_hub deprecation warning about resume_download
+warnings.filterwarnings("ignore", message=".*resume_download.*", category=FutureWarning)
+
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from typing import List, Dict, Optional

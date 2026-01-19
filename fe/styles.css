@@ -1079,11 +1079,6 @@ header h1 {
     color: var(--color-neutral-sentiment);
 }
 
-.sentiment-confidence {
-    font-size: var(--text-sm);
-    color: var(--color-text-muted);
-}
-
 .sentiment-stats {
     display: flex;
     flex-direction: column;

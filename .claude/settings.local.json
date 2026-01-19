@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(cd:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(\"c:\\\\Users\\\\royzh\\\\OneDrive\\\\Documents\\\\Projects\\\\project-a\\\\.venv\\\\Scripts\\\\python.exe\" -c:*)"
     ]
   }
 }

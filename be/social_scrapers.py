@@ -4,6 +4,7 @@ Supports StockTwits, Reddit, and Twitter (optional).
 """
 
 import requests
+import cloudscraper
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
@@ -46,21 +47,22 @@ class StockTwitsScraper(BaseScraper):
     - FREE, no authentication required for basic access
     - Rate limit: ~200 requests/hour
     - Endpoint: https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json
+    - Uses cloudscraper to bypass Cloudflare protection
     """
 
     BASE_URL = "https://api.stocktwits.com/api/2"
     TIMEOUT = 10
+
+    def __init__(self):
+        """Initialize with cloudscraper session to handle Cloudflare."""
+        self.scraper = cloudscraper.create_scraper()
 
     def scrape(self, ticker: str, limit: int = 50) -> List[Dict]:
         """Fetch posts from StockTwits for a ticker."""
         url = f"{self.BASE_URL}/streams/symbol/{ticker.upper()}.json"
 
         try:
-            response = requests.get(
-                url,
-                timeout=self.TIMEOUT,
-                headers={"User-Agent": "StockAssistant/1.0"}
-            )
+            response = self.scraper.get(url, timeout=self.TIMEOUT)
             response.raise_for_status()
             data = response.json()
 
@@ -140,99 +142,100 @@ class StockTwitsScraper(BaseScraper):
 
 class RedditScraper(BaseScraper):
     """
-    Reddit API scraper using PRAW.
+    Direct Reddit scraper using public JSON endpoints.
 
-    - FREE with OAuth authentication
-    - Rate limit: 60 requests/minute
+    - No API credentials required
+    - Uses cloudscraper to bypass Cloudflare
     - Subreddits: wallstreetbets, stocks, investing, options
     """
 
     SUBREDDITS = ["wallstreetbets", "stocks", "investing", "options"]
+    BASE_URL = "https://www.reddit.com"
     TIMEOUT = 10
 
     def __init__(self, client_id: str = "", client_secret: str = "", user_agent: str = "StockAssistant/1.0"):
-        self.client_id = client_id
-        self.client_secret = client_secret
+        # Credentials no longer needed, but keep params for backwards compatibility
+        self.scraper = cloudscraper.create_scraper()
         self.user_agent = user_agent
-        self._reddit = None
-        self.enabled = bool(client_id and client_secret)
-
-    def _get_reddit(self):
-        """Lazy load Reddit client."""
-        if self._reddit is None and self.enabled:
-            try:
-                import praw
-                self._reddit = praw.Reddit(
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                    user_agent=self.user_agent
-                )
-                logger.info("Reddit client initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize Reddit client: {e}")
-                self.enabled = False
-        return self._reddit
 
     def scrape(self, ticker: str, limit: int = 50) -> List[Dict]:
-        """Fetch posts from Reddit for a ticker."""
-        if not self.enabled:
-            logger.debug("Reddit scraper disabled - no credentials")
-            return []
-
-        reddit = self._get_reddit()
-        if not reddit:
-            return []
-
+        """Fetch posts from Reddit for a ticker using public JSON endpoints."""
         posts = []
+        seen_ids = set()
         per_subreddit = max(1, limit // len(self.SUBREDDITS))
 
         for subreddit_name in self.SUBREDDITS:
             if len(posts) >= limit:
                 break
 
-            try:
-                subreddit = reddit.subreddit(subreddit_name)
+            # Search with $ prefix (common in finance subs) and plain ticker
+            for query in [f"${ticker.upper()}", ticker.upper()]:
+                if len(posts) >= limit:
+                    break
 
-                # Search for ticker mentions (with $ prefix common in finance)
-                search_queries = [f"${ticker}", ticker.upper()]
+                try:
+                    url = f"{self.BASE_URL}/r/{subreddit_name}/search.json"
+                    params = {
+                        "q": query,
+                        "limit": per_subreddit,
+                        "t": "week",
+                        "sort": "relevance",
+                        "restrict_sr": "true"
+                    }
 
-                for query in search_queries:
-                    if len(posts) >= limit:
-                        break
+                    response = self.scraper.get(
+                        url,
+                        params=params,
+                        timeout=self.TIMEOUT,
+                        headers={"User-Agent": self.user_agent}
+                    )
+                    response.raise_for_status()
+                    data = response.json()
 
-                    try:
-                        for submission in subreddit.search(
-                            query,
-                            limit=per_subreddit,
-                            time_filter="week",
-                            sort="relevance"
-                        ):
-                            post = self._standardize_post(submission, ticker, subreddit_name)
-                            if post and post["id"] not in [p["id"] for p in posts]:
+                    children = data.get("data", {}).get("children", [])
+
+                    for child in children:
+                        if len(posts) >= limit:
+                            break
+
+                        post_data = child.get("data", {})
+                        post_id = post_data.get("id")
+
+                        if post_id and post_id not in seen_ids:
+                            post = self._standardize_post(post_data, ticker, subreddit_name)
+                            if post:
                                 posts.append(post)
+                                seen_ids.add(post_id)
 
-                            if len(posts) >= limit:
-                                break
-                    except Exception as e:
-                        logger.debug(f"Reddit search failed for {query} in r/{subreddit_name}: {e}")
-                        continue
-
-            except Exception as e:
-                logger.warning(f"Reddit scraping error for r/{subreddit_name}: {e}")
-                continue
+                except requests.exceptions.Timeout:
+                    logger.warning(f"Reddit request timed out for r/{subreddit_name}")
+                    continue
+                except requests.exceptions.RequestException as e:
+                    logger.warning(f"Reddit scraping error for r/{subreddit_name}: {e}")
+                    continue
+                except Exception as e:
+                    logger.debug(f"Reddit search failed for {query} in r/{subreddit_name}: {e}")
+                    continue
 
         logger.info(f"Scraped {len(posts)} posts from Reddit for {ticker}")
         return posts[:limit]
 
-    def _standardize_post(self, submission, ticker: str, subreddit: str) -> Optional[Dict]:
-        """Convert Reddit submission to standard format."""
+    def _standardize_post(self, post_data: Dict, ticker: str, subreddit: str) -> Optional[Dict]:
+        """Convert Reddit JSON post to standard format."""
         try:
-            # Combine title and selftext
-            content = submission.title
-            if submission.selftext:
-                content = f"{submission.title}\n\n{submission.selftext}"
+            post_id = post_data.get("id")
+            if not post_id:
+                return None
 
-            content = content.strip()
+            title = post_data.get("title", "").strip()
+            selftext = post_data.get("selftext", "").strip()
+
+            # Combine title and selftext
+            if selftext and selftext != "[removed]" and selftext != "[deleted]":
+                content = f"{title}\n\n{selftext}"
+            else:
+                content = title
+
             if not content:
                 return None
 
@@ -240,53 +243,212 @@ class RedditScraper(BaseScraper):
             if len(content) > 2000:
                 content = content[:2000] + "..."
 
-            timestamp = datetime.fromtimestamp(submission.created_utc, tz=timezone.utc).isoformat()
+            # Parse timestamp
+            created_utc = post_data.get("created_utc", 0)
+            timestamp = datetime.fromtimestamp(created_utc, tz=timezone.utc).isoformat()
 
-            author_name = str(submission.author) if submission.author else "[deleted]"
+            author = post_data.get("author", "[deleted]")
+            if author == "[deleted]":
+                author = "[deleted]"
+
+            score = post_data.get("score", 0)
+            num_comments = post_data.get("num_comments", 0)
+            permalink = post_data.get("permalink", "")
 
             return {
-                "id": self.generate_post_id("reddit", submission.id),
+                "id": self.generate_post_id("reddit", post_id),
                 "platform": "reddit",
                 "ticker": ticker.upper(),
                 "content": content,
-                "author": author_name,
-                "author_followers": 0,  # Not easily available
+                "author": author,
+                "author_followers": 0,
                 "timestamp": timestamp,
-                "likes": submission.score,
-                "comments": submission.num_comments,
+                "likes": score,
+                "comments": num_comments,
                 "retweets": 0,
-                "engagement_score": self.calculate_engagement_score(submission.score, submission.num_comments),
-                "url": f"https://reddit.com{submission.permalink}",
+                "engagement_score": self.calculate_engagement_score(score, num_comments),
+                "url": f"https://reddit.com{permalink}",
                 "subreddit": subreddit
             }
 
         except Exception as e:
-            logger.debug(f"Failed to parse Reddit submission: {e}")
+            logger.debug(f"Failed to parse Reddit post: {e}")
             return None
 
 
 class TwitterScraper(BaseScraper):
     """
-    Twitter/X API scraper.
+    Twitter/X API v2 scraper.
 
     NOTE: Twitter API v2 requires paid access ($100+/month for Basic tier).
-    This scraper is disabled by default and serves as a placeholder.
+    This scraper is disabled by default unless TWITTER_BEARER_TOKEN is set.
+
+    - Rate limit (Basic tier): 10,000 tweets/month
+    - Endpoint: https://api.twitter.com/2/tweets/search/recent
+    - Search window: Last 7 days only (recent search)
     """
+
+    BASE_URL = "https://api.twitter.com/2"
+    TIMEOUT = 15
 
     def __init__(self, bearer_token: str = ""):
         self.bearer_token = bearer_token
         self.enabled = bool(bearer_token)
 
     def scrape(self, ticker: str, limit: int = 50) -> List[Dict]:
-        """Fetch tweets for a ticker."""
+        """
+        Fetch tweets for a ticker using Twitter API v2 recent search.
+
+        Args:
+            ticker: Stock ticker symbol (e.g., "AAPL")
+            limit: Maximum number of tweets to return (max 100 per request)
+
+        Returns:
+            List of standardized post dicts
+        """
         if not self.enabled:
-            logger.debug("Twitter scraper disabled - no API key (requires $100+/month)")
+            logger.debug("Twitter scraper disabled - no bearer token (requires $100+/month)")
             return []
 
-        # Twitter API v2 implementation would go here
-        # For now, return empty list
-        logger.info("Twitter scraping not implemented - API is paid")
-        return []
+        # Build search query for stock ticker
+        # Search for cashtag ($AAPL) and common stock-related terms
+        query = f"${ticker.upper()} (stock OR shares OR trading OR buy OR sell OR price) -is:retweet lang:en"
+
+        # Limit to max 100 per request (Twitter API limit)
+        max_results = min(limit, 100)
+
+        url = f"{self.BASE_URL}/tweets/search/recent"
+        headers = {
+            "Authorization": f"Bearer {self.bearer_token}",
+            "Content-Type": "application/json"
+        }
+        params = {
+            "query": query,
+            "max_results": max_results,
+            "tweet.fields": "created_at,public_metrics,author_id,conversation_id",
+            "user.fields": "username,name,public_metrics",
+            "expansions": "author_id"
+        }
+
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=self.TIMEOUT)
+
+            # Handle rate limiting
+            if response.status_code == 429:
+                logger.warning("Twitter API rate limit reached")
+                return []
+
+            # Handle authentication errors
+            if response.status_code == 401:
+                logger.error("Twitter API authentication failed - check bearer token")
+                return []
+
+            if response.status_code == 403:
+                logger.error("Twitter API access forbidden - may need higher tier access")
+                return []
+
+            response.raise_for_status()
+            data = response.json()
+
+            # Check for errors in response
+            if "errors" in data and not data.get("data"):
+                for error in data.get("errors", []):
+                    logger.warning(f"Twitter API error: {error.get('message', 'Unknown error')}")
+                return []
+
+            tweets = data.get("data", [])
+            if not tweets:
+                logger.info(f"No tweets found for {ticker}")
+                return []
+
+            # Build user lookup map from expansions
+            users = {}
+            includes = data.get("includes", {})
+            for user in includes.get("users", []):
+                users[user["id"]] = user
+
+            # Parse tweets
+            posts = []
+            for tweet in tweets:
+                try:
+                    post = self._standardize_post(tweet, ticker, users)
+                    if post:
+                        posts.append(post)
+                except Exception as e:
+                    logger.debug(f"Failed to parse tweet: {e}")
+                    continue
+
+            logger.info(f"Scraped {len(posts)} tweets from Twitter for {ticker}")
+            return posts
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"Twitter request timed out for {ticker}")
+            return []
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter API error for {ticker}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected Twitter error for {ticker}: {e}")
+            return []
+
+    def _standardize_post(self, tweet: Dict, ticker: str, users: Dict) -> Optional[Dict]:
+        """
+        Convert Twitter API v2 tweet to standard format.
+
+        Args:
+            tweet: Raw tweet data from API
+            ticker: Stock ticker symbol
+            users: User lookup map from expansions
+
+        Returns:
+            Standardized post dict or None
+        """
+        tweet_id = tweet.get("id")
+        if not tweet_id:
+            return None
+
+        text = tweet.get("text", "").strip()
+        if not text:
+            return None
+
+        # Get author info from users map
+        author_id = tweet.get("author_id", "")
+        author_info = users.get(author_id, {})
+        username = author_info.get("username", "unknown")
+        author_metrics = author_info.get("public_metrics", {})
+        followers = author_metrics.get("followers_count", 0)
+
+        # Parse timestamp
+        created_at = tweet.get("created_at", "")
+        timestamp = None
+        if created_at:
+            try:
+                # Twitter API v2 uses ISO 8601 format
+                timestamp = datetime.fromisoformat(created_at.replace("Z", "+00:00")).isoformat()
+            except Exception:
+                timestamp = created_at
+
+        # Get engagement metrics
+        metrics = tweet.get("public_metrics", {})
+        likes = metrics.get("like_count", 0)
+        retweets = metrics.get("retweet_count", 0)
+        replies = metrics.get("reply_count", 0)
+        quotes = metrics.get("quote_count", 0)
+
+        return {
+            "id": self.generate_post_id("twitter", tweet_id),
+            "platform": "twitter",
+            "ticker": ticker.upper(),
+            "content": text,
+            "author": username,
+            "author_followers": followers,
+            "timestamp": timestamp,
+            "likes": likes,
+            "comments": replies,
+            "retweets": retweets + quotes,
+            "engagement_score": self.calculate_engagement_score(likes, replies, retweets + quotes),
+            "url": f"https://twitter.com/{username}/status/{tweet_id}"
+        }
 
 
 class SocialMediaAggregator:

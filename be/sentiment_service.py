@@ -37,6 +37,14 @@ class SentimentService:
     MAX_POSTS_PER_PLATFORM = 30
     MAX_WORKERS = 5
 
+    # Bias correction: asymmetric thresholds to counteract bullish bias in data sources
+    # Social media (WSB, StockTwits) skews positive; FinBERT also has slight positive bias
+    BULLISH_THRESHOLD = 0.3    # Higher bar for bullish (was 0.2)
+    BEARISH_THRESHOLD = -0.15  # Lower bar for bearish (was -0.2)
+
+    # Minimum confidence to include a post in aggregate calculation
+    MIN_CONFIDENCE_THRESHOLD = 0.6
+
     def __init__(self, vector_store: Optional[VectorStore] = None):
         """
         Initialize the sentiment service.
@@ -292,12 +300,17 @@ class SentimentService:
 
     def _calculate_aggregate_sentiment(self, posts: List[Dict]) -> Dict:
         """
-        Calculate weighted aggregate sentiment.
+        Calculate weighted aggregate sentiment with bias correction.
 
         Weighting factors:
         - Recency: Posts from last 24h weighted 2x
         - Engagement: log(1 + engagement_score)
-        - Confidence: FinBERT confidence score
+        - Confidence: FinBERT confidence score (filtered by MIN_CONFIDENCE_THRESHOLD)
+
+        Bias corrections:
+        - Asymmetric thresholds for bullish/bearish classification
+        - Confidence filtering to exclude low-confidence predictions
+        - Neutral posts contribute slightly negative (-0.05) to counteract positive bias
         """
         if not posts:
             return {"score": 0, "label": "neutral", "confidence": 0, "post_count": 0}
@@ -306,12 +319,25 @@ class SentimentService:
         total_weight = 0
         now = datetime.now(timezone.utc)
 
-        for post in posts:
-            # Convert sentiment label to numeric score
-            label = post.get("sentiment_label", "neutral")
-            base_score = {"negative": -1, "neutral": 0, "positive": 1}.get(label, 0)
+        # Track sentiment distribution for logging
+        distribution = {"positive": 0, "neutral": 0, "negative": 0}
+        filtered_count = 0
 
+        for post in posts:
+            label = post.get("sentiment_label", "neutral")
             confidence = post.get("sentiment_score", 0.5)
+
+            # Track raw distribution before filtering
+            distribution[label] = distribution.get(label, 0) + 1
+
+            # Filter out low-confidence predictions
+            if confidence < self.MIN_CONFIDENCE_THRESHOLD:
+                filtered_count += 1
+                continue
+
+            # Convert sentiment label to numeric score
+            # Neutral posts get slight negative bias (-0.05) to counteract data source bias
+            base_score = {"negative": -1, "neutral": -0.05, "positive": 1}.get(label, 0)
 
             # Recency weight
             recency_weight = 1.0
@@ -337,21 +363,31 @@ class SentimentService:
             weighted_sum += base_score * weight
             total_weight += weight
 
+        # Log sentiment distribution for debugging
+        logger.info(
+            f"Sentiment distribution: {distribution} | "
+            f"Filtered (low confidence): {filtered_count} | "
+            f"Included: {len(posts) - filtered_count}"
+        )
+
         avg_score = weighted_sum / total_weight if total_weight > 0 else 0
 
-        # Determine label based on score
-        if avg_score < -0.2:
+        # Determine label using asymmetric thresholds to counteract bullish bias
+        if avg_score < self.BEARISH_THRESHOLD:
             label = "bearish"
-        elif avg_score > 0.2:
+        elif avg_score > self.BULLISH_THRESHOLD:
             label = "bullish"
         else:
             label = "neutral"
 
+        included_count = len(posts) - filtered_count
         return {
             "score": round(avg_score, 3),
             "label": label,
-            "confidence": round(min(1.0, total_weight / len(posts) / 2), 3),
-            "post_count": len(posts)
+            "confidence": round(min(1.0, total_weight / max(1, included_count) / 2), 3),
+            "post_count": len(posts),
+            "included_count": included_count,
+            "distribution": distribution
         }
 
     def _format_post_for_response(self, post: Dict) -> Dict:

@@ -1676,9 +1676,6 @@ function renderSentiment(data) {
     labelEl.textContent = aggregate.label.toUpperCase();
     labelEl.className = 'sentiment-label ' + aggregate.label;
 
-    const confidenceEl = document.getElementById('sentimentConfidence');
-    confidenceEl.textContent = `${(aggregate.confidence * 100).toFixed(0)}% confidence`;
-
     // Update stats
     document.getElementById('sentimentPostCount').textContent = aggregate.post_count;
     document.getElementById('sentimentLastUpdated').textContent = new Date().toLocaleTimeString();
@@ -1785,7 +1782,7 @@ function renderSentimentPosts(posts) {
 function getPlatformIcon(platform) {
     const icons = {
         'stocktwits': '📈',
-        'reddit': '🔴',
+        'reddit': '👽',
         'twitter': '🐦'
     };
     return icons[platform] || '💬';

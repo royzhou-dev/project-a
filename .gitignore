@@ -3,6 +3,7 @@
 .venv
 .gitignore
 .design-engineer
+.claude
 
 # FAISS vector database (local storage)
 be/faiss_index/*.faiss
