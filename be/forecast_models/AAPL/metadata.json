@@ -1,0 +1,11 @@
+{
+  "ticker": "AAPL",
+  "trained_at": "2026-01-21T02:30:48.677580Z",
+  "training_epochs": 50,
+  "final_train_loss": 0.016589552883736113,
+  "final_val_loss": 0.05901789665222168,
+  "data_points": 500,
+  "sequence_length": 60,
+  "forecast_horizon": 30,
+  "model_version": "1.0"
+}

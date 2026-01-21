@@ -402,6 +402,8 @@ function switchTab(tabName) {
         loadSplits(currentTicker);
     } else if (tabName === 'sentiment' && currentTicker) {
         loadSentiment(currentTicker);
+    } else if (tabName === 'forecast' && currentTicker) {
+        loadForecast(currentTicker);
     }
 }
 
@@ -769,7 +771,7 @@ function drawLineChart(data, adjustedMax, priceRange, chartWidth, chartHeight, h
     ctx.fillStyle = gradient;
     ctx.fill();
 
-    // Draw the line with smooth curve
+    // Draw the line
     ctx.beginPath();
     ctx.strokeStyle = colors.line;
     ctx.lineWidth = 2;
@@ -780,13 +782,7 @@ function drawLineChart(data, adjustedMax, priceRange, chartWidth, chartHeight, h
         if (i === 0) {
             ctx.moveTo(p.x, p.y);
         } else {
-            // Smooth curve using quadratic bezier
-            const prev = points[i - 1];
-            const cpX = (prev.x + p.x) / 2;
-            ctx.quadraticCurveTo(prev.x, prev.y, cpX, (prev.y + p.y) / 2);
-            if (i === points.length - 1) {
-                ctx.quadraticCurveTo(cpX, (prev.y + p.y) / 2, p.x, p.y);
-            }
+            ctx.lineTo(p.x, p.y);
         }
     });
     ctx.stroke();
@@ -1566,6 +1562,9 @@ function setupChatListeners() {
 
     // Setup sentiment listeners
     setupSentimentListeners();
+
+    // Setup forecast listeners
+    setupForecastListeners();
 }
 
 // ============================================
@@ -1827,5 +1826,522 @@ function resetSentimentUI() {
     const needle = document.getElementById('gaugeNeedle');
     if (needle) {
         needle.style.transform = 'rotate(0deg)';
+    }
+}
+
+// ============================================
+// FORECAST FUNCTIONALITY
+// ============================================
+
+let forecastState = {
+    data: null,
+    isLoading: false,
+    modelStatus: null
+};
+
+let forecastChartState = {
+    data: null,
+    canvas: null,
+    ctx: null,
+    padding: { top: 20, right: 20, bottom: 40, left: 65 },
+    hoveredIndex: -1,
+    totalPoints: 0,
+    historicalLength: 0
+};
+
+function setupForecastListeners() {
+    const refreshBtn = document.getElementById('refreshForecastBtn');
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            if (currentTicker) loadForecast(currentTicker, true);
+        });
+    }
+}
+
+async function getHistoricalDataForForecast(ticker) {
+    // Try to get 2-year data from cache first (used for training)
+    const cacheKey2Y = `chart_${ticker}_2Y`;
+    if (cache.has(cacheKey2Y)) {
+        const data = cache.get(cacheKey2Y);
+        if (data.results && data.results.length > 0) {
+            return data.results;
+        }
+    }
+
+    // Try 5-year cache as fallback (has more than enough data)
+    const cacheKey5Y = `chart_${ticker}_5Y`;
+    if (cache.has(cacheKey5Y)) {
+        const data = cache.get(cacheKey5Y);
+        if (data.results && data.results.length > 0) {
+            return data.results;
+        }
+    }
+
+    // Try 1-year cache (minimum for decent training)
+    const cacheKey1Y = `chart_${ticker}_1Y`;
+    if (cache.has(cacheKey1Y)) {
+        const data = cache.get(cacheKey1Y);
+        if (data.results && data.results.length > 0) {
+            return data.results;
+        }
+    }
+
+    // No cached data available, fetch 2 years of data
+    const to = new Date();
+    const from = new Date();
+    from.setFullYear(from.getFullYear() - 2);
+
+    const fromStr = from.toISOString().split('T')[0];
+    const toStr = to.toISOString().split('T')[0];
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/ticker/${ticker}/aggregates?from=${fromStr}&to=${toStr}&timespan=day`
+        );
+        const data = await response.json();
+
+        // Cache it for future use
+        if (data.results) {
+            cache.set(cacheKey2Y, data, CACHE_TTL.DAILY);
+            return data.results;
+        }
+    } catch (error) {
+        console.error('Error fetching historical data for forecast:', error);
+    }
+
+    return null;
+}
+
+async function loadForecast(ticker, forceRefresh = false) {
+    const cacheKey = `forecast_${ticker}`;
+    const container = document.getElementById('forecastTableContainer');
+
+    // Show loading state
+    if (!forceRefresh) {
+        container.innerHTML = '<p class="loading-text">Loading forecast...</p>';
+    }
+
+    forecastState.isLoading = true;
+    updateForecastButtons();
+
+    // Update status to show loading
+    document.getElementById('forecastModelStatus').textContent = 'Loading...';
+
+    // Check cache first
+    if (!forceRefresh && cache.has(cacheKey)) {
+        const data = cache.get(cacheKey);
+        renderForecast(data);
+        forecastState.isLoading = false;
+        updateForecastButtons();
+        return;
+    }
+
+    try {
+        // Get historical data from cache or fetch it (reuse existing chart data)
+        const historicalData = await getHistoricalDataForForecast(ticker);
+
+        const response = await fetch(`${API_BASE}/forecast/predict/${ticker}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                force_retrain: forceRefresh,
+                historical_data: historicalData
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Forecast failed');
+        }
+
+        const data = await response.json();
+        cache.set(cacheKey, data, CACHE_TTL.MODERATE);
+        renderForecast(data);
+
+    } catch (error) {
+        console.error('Error loading forecast:', error);
+        container.innerHTML = `<p class="error-text">${error.message || 'Error loading forecast'}</p>`;
+        resetForecastUI();
+    } finally {
+        forecastState.isLoading = false;
+        updateForecastButtons();
+    }
+}
+
+function renderForecast(data) {
+    forecastState.data = data;
+
+    // Update status
+    if (data.model_info) {
+        document.getElementById('forecastModelStatus').textContent = 'Trained';
+        const trainedAt = data.model_info.trained_at;
+        if (trainedAt) {
+            const date = new Date(trainedAt);
+            document.getElementById('forecastLastUpdated').textContent = date.toLocaleDateString();
+        }
+    } else {
+        document.getElementById('forecastModelStatus').textContent = 'Not trained';
+    }
+
+    // Draw forecast chart
+    drawForecastChart(data);
+
+}
+
+function drawForecastChart(data, skipSetup = false) {
+    const canvas = document.getElementById('forecastChart');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const colors = getChartColors();
+
+    // High DPI support
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+
+    if (!skipSetup) {
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
+    }
+
+    const padding = { top: 20, right: 20, bottom: 40, left: 65 };
+    const width = rect.width;
+    const height = rect.height;
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    // Combine historical and forecast data
+    const historical = data.historical || [];
+    const forecast = data.forecast || [];
+    const confidenceBounds = data.confidence_bounds || {};
+
+    if (historical.length === 0 && forecast.length === 0) {
+        ctx.fillStyle = colors.text;
+        ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No data available', width / 2, height / 2);
+        return;
+    }
+
+    // Store state for hover interactions
+    forecastChartState.data = data;
+    forecastChartState.canvas = canvas;
+    forecastChartState.ctx = ctx;
+    forecastChartState.totalPoints = historical.length + forecast.length;
+    forecastChartState.historicalLength = historical.length;
+
+    // Calculate price range
+    const historicalPrices = historical.map(d => d.close);
+    const forecastPrices = forecast.map(d => d.predicted_close);
+    const upperBound = confidenceBounds.upper || [];
+    const lowerBound = confidenceBounds.lower || [];
+
+    const allPrices = [...historicalPrices, ...forecastPrices, ...upperBound, ...lowerBound];
+    const minPrice = Math.min(...allPrices);
+    const maxPrice = Math.max(...allPrices);
+    const pricePadding = (maxPrice - minPrice) * 0.1;
+    const adjustedMin = minPrice - pricePadding;
+    const adjustedMax = maxPrice + pricePadding;
+    const priceRange = adjustedMax - adjustedMin;
+
+    const totalPoints = historical.length + forecast.length;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Draw grid lines
+    const numGridLines = 5;
+    ctx.strokeStyle = colors.grid;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = colors.text;
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    for (let i = 0; i <= numGridLines; i++) {
+        const y = padding.top + (i / numGridLines) * chartHeight;
+        const price = adjustedMax - (i / numGridLines) * priceRange;
+
+        ctx.beginPath();
+        ctx.setLineDash([4, 4]);
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillText(`$${price.toFixed(2)}`, padding.left - 8, y);
+    }
+
+    // Draw vertical divider line between historical and forecast
+    if (historical.length > 0 && forecast.length > 0) {
+        const dividerX = padding.left + (historical.length / totalPoints) * chartWidth;
+        ctx.strokeStyle = colors.crosshair;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([8, 4]);
+        ctx.beginPath();
+        ctx.moveTo(dividerX, padding.top);
+        ctx.lineTo(dividerX, height - padding.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Draw confidence band (shaded area)
+    if (upperBound.length > 0 && lowerBound.length > 0) {
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.15)';
+
+        // Start from first forecast point
+        const startIdx = historical.length;
+        for (let i = 0; i < forecast.length; i++) {
+            const x = padding.left + ((startIdx + i) / (totalPoints - 1)) * chartWidth;
+            const y = padding.top + ((adjustedMax - upperBound[i]) / priceRange) * chartHeight;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+
+        // Go back along lower bound
+        for (let i = forecast.length - 1; i >= 0; i--) {
+            const x = padding.left + ((startIdx + i) / (totalPoints - 1)) * chartWidth;
+            const y = padding.top + ((adjustedMax - lowerBound[i]) / priceRange) * chartHeight;
+            ctx.lineTo(x, y);
+        }
+
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // Draw historical line
+    if (historical.length > 1) {
+        ctx.beginPath();
+        ctx.strokeStyle = colors.line;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+
+        historical.forEach((d, i) => {
+            const x = padding.left + (i / (totalPoints - 1)) * chartWidth;
+            const y = padding.top + ((adjustedMax - d.close) / priceRange) * chartHeight;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    }
+
+    // Draw forecast line (dashed)
+    if (forecast.length > 0) {
+        ctx.beginPath();
+        ctx.strokeStyle = colors.positive;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+
+        // Connect from last historical point
+        if (historical.length > 0) {
+            const lastHistorical = historical[historical.length - 1];
+            const x = padding.left + ((historical.length - 1) / (totalPoints - 1)) * chartWidth;
+            const y = padding.top + ((adjustedMax - lastHistorical.close) / priceRange) * chartHeight;
+            ctx.moveTo(x, y);
+        }
+
+        forecast.forEach((d, i) => {
+            const x = padding.left + ((historical.length + i) / (totalPoints - 1)) * chartWidth;
+            const y = padding.top + ((adjustedMax - d.predicted_close) / priceRange) * chartHeight;
+            if (historical.length === 0 && i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Draw X-axis labels
+    ctx.fillStyle = colors.text;
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    // Show a few date labels
+    const allDates = [...historical.map(d => d.date), ...forecast.map(d => d.date)];
+    const labelIndices = [0, Math.floor(historical.length / 2), historical.length - 1, historical.length + Math.floor(forecast.length / 2), totalPoints - 1];
+
+    labelIndices.forEach(idx => {
+        if (idx >= 0 && idx < allDates.length) {
+            const x = padding.left + (idx / (totalPoints - 1)) * chartWidth;
+            const date = new Date(allDates[idx]);
+            const label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            ctx.fillText(label, x, height - padding.bottom + 8);
+        }
+    });
+
+    // Draw crosshair and tooltip if hovering
+    if (forecastChartState.hoveredIndex >= 0 && forecastChartState.hoveredIndex < totalPoints) {
+        drawForecastCrosshair(forecastChartState.hoveredIndex, data, adjustedMin, adjustedMax, priceRange, chartWidth, chartHeight, width, height, padding, colors);
+    }
+
+    // Set up mouse events (only on initial draw)
+    if (!skipSetup) {
+        canvas.onmousemove = handleForecastChartMouseMove;
+        canvas.onmouseleave = handleForecastChartMouseLeave;
+    }
+}
+
+function drawForecastCrosshair(index, data, adjustedMin, adjustedMax, priceRange, chartWidth, chartHeight, width, height, padding, colors) {
+    const ctx = forecastChartState.ctx;
+    const historical = data.historical || [];
+    const forecast = data.forecast || [];
+    const totalPoints = historical.length + forecast.length;
+
+    // Determine if we're in historical or forecast region
+    const isHistorical = index < historical.length;
+    let point, price, date;
+
+    if (isHistorical) {
+        point = historical[index];
+        price = point.close;
+        date = point.date;
+    } else {
+        const forecastIdx = index - historical.length;
+        point = forecast[forecastIdx];
+        price = point.predicted_close;
+        date = point.date;
+    }
+
+    const x = padding.left + (index / (totalPoints - 1)) * chartWidth;
+    const y = padding.top + ((adjustedMax - price) / priceRange) * chartHeight;
+
+    // Crosshair lines
+    ctx.strokeStyle = colors.crosshair;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    // Vertical line
+    ctx.beginPath();
+    ctx.moveTo(x, padding.top);
+    ctx.lineTo(x, height - padding.bottom);
+    ctx.stroke();
+
+    // Horizontal line
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Point dot
+    ctx.beginPath();
+    ctx.fillStyle = isHistorical ? colors.line : colors.positive;
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = colors.tooltipBg;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Tooltip
+    drawForecastTooltip(x, y, point, isHistorical, width, height, padding, colors);
+}
+
+function drawForecastTooltip(x, y, point, isHistorical, width, height, padding, colors) {
+    const ctx = forecastChartState.ctx;
+
+    const date = new Date(point.date);
+    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+    const price = isHistorical ? point.close : point.predicted_close;
+    const tooltipWidth = isHistorical ? 140 : 155;
+    const tooltipHeight = isHistorical ? 52 : 72;
+    let tooltipX = x + 12;
+    let tooltipY = y - tooltipHeight / 2;
+
+    // Keep tooltip in bounds
+    if (tooltipX + tooltipWidth > width - padding.right) {
+        tooltipX = x - tooltipWidth - 12;
+    }
+    if (tooltipY < padding.top) {
+        tooltipY = padding.top;
+    }
+    if (tooltipY + tooltipHeight > height - padding.bottom) {
+        tooltipY = height - padding.bottom - tooltipHeight;
+    }
+
+    // Tooltip background
+    ctx.fillStyle = colors.tooltipBg;
+    ctx.strokeStyle = colors.tooltipBorder;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(tooltipX, tooltipY, tooltipWidth, tooltipHeight, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    // Tooltip content
+    ctx.fillStyle = colors.text;
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(dateStr, tooltipX + 10, tooltipY + 8);
+
+    ctx.fillStyle = colors.textStrong;
+    ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.fillText(`$${price.toFixed(2)}`, tooltipX + 10, tooltipY + 24);
+
+    if (!isHistorical) {
+        // Show confidence range for predictions
+        ctx.fillStyle = colors.text;
+        ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        const rangeStr = `Range: $${point.lower_bound.toFixed(2)} - $${point.upper_bound.toFixed(2)}`;
+        ctx.fillText(rangeStr, tooltipX + 10, tooltipY + 48);
+    }
+}
+
+function handleForecastChartMouseMove(e) {
+    const { data, canvas, padding, totalPoints } = forecastChartState;
+    if (!data) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.width / dpr;
+    const chartWidth = width - padding.left - padding.right;
+    const mouseX = e.clientX - rect.left;
+
+    const relativeX = mouseX - padding.left;
+    const index = Math.round((relativeX / chartWidth) * (totalPoints - 1));
+
+    if (index >= 0 && index < totalPoints && index !== forecastChartState.hoveredIndex) {
+        forecastChartState.hoveredIndex = index;
+        drawForecastChart(data, true);
+    }
+}
+
+function handleForecastChartMouseLeave() {
+    forecastChartState.hoveredIndex = -1;
+    if (forecastChartState.data) {
+        drawForecastChart(forecastChartState.data, true);
+    }
+}
+
+function updateForecastButtons() {
+    const refreshBtn = document.getElementById('refreshForecastBtn');
+
+    if (refreshBtn) {
+        refreshBtn.disabled = forecastState.isLoading || !currentTicker;
+        if (forecastState.isLoading) {
+            refreshBtn.classList.add('loading');
+        } else {
+            refreshBtn.classList.remove('loading');
+        }
+    }
+}
+
+function resetForecastUI() {
+    document.getElementById('forecastModelStatus').textContent = 'Not trained';
+    document.getElementById('forecastLastUpdated').textContent = '--';
+    forecastState.data = null;
+
+    const canvas = document.getElementById('forecastChart');
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
 }

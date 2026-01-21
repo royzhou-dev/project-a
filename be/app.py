@@ -3,6 +3,7 @@ from flask_cors import CORS
 from polygon_api import PolygonAPI
 from chat_routes import register_chat_routes
 from sentiment_routes import sentiment_bp
+from forecast_routes import forecast_bp
 import os
 import atexit
 
@@ -103,6 +104,9 @@ register_chat_routes(app)
 
 # Register sentiment routes
 app.register_blueprint(sentiment_bp)
+
+# Register forecast routes
+app.register_blueprint(forecast_bp)
 
 # Graceful shutdown handler for FAISS
 from chat_routes import chat_service
