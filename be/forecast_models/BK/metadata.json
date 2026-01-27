@@ -1,0 +1,11 @@
+{
+  "ticker": "BK",
+  "trained_at": "2026-01-27T02:47:31.614560Z",
+  "training_epochs": 50,
+  "final_train_loss": 0.009251005534844642,
+  "final_val_loss": 0.0026557708624750376,
+  "data_points": 499,
+  "sequence_length": 60,
+  "forecast_horizon": 30,
+  "model_version": "1.0"
+}

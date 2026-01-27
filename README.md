@@ -1,6 +1,6 @@
-# MarketLens - Stock Trading Assistant
+# MarketLens - Stock Research Assistant
 
-A personal stock trading assistant that provides real-time market information and AI-powered insights. Users can explore stock data, news, earnings, and performance metrics powered by the Polygon API.
+A personal stock research assistant that provides real-time market information and AI-powered insights. Users can explore stock data, news, earnings, and performance metrics powered by the Polygon API.
 
 ## Project Structure
 

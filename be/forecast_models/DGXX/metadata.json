@@ -1,0 +1,11 @@
+{
+  "ticker": "DGXX",
+  "trained_at": "2026-01-27T02:47:46.132868Z",
+  "training_epochs": 50,
+  "final_train_loss": 0.03233261755667627,
+  "final_val_loss": 0.01212826743721962,
+  "data_points": 215,
+  "sequence_length": 60,
+  "forecast_horizon": 30,
+  "model_version": "1.0"
+}

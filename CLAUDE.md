@@ -11,7 +11,7 @@ python app.py
 
 ## Project Overview
 
-Stock trading assistant with Polygon.io data, AI chatbot (RAG-powered), and social media sentiment analysis.
+Stock research assistant with Polygon.io data, AI chatbot (RAG-powered), and social media sentiment analysis.
 
 ## Architecture
 

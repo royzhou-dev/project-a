@@ -7,287 +7,295 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div class="header-content">
-                <h1>MarketLens</h1>
-                <div class="header-actions">
-                    <div id="marketStatus" class="market-status">
-                        <span class="status-label">Market:</span>
-                        <span id="marketStatusText" class="status-text">Loading...</span>
-                    </div>
-                    <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">
-                        <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                        </svg>
-                        <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                        </svg>
-                    </button>
+    <header class="global-header">
+        <div class="header-content">
+            <h1>MarketLens</h1>
+            <div class="header-actions">
+                <div id="marketStatus" class="market-status">
+                    <span class="status-label">Market:</span>
+                    <span id="marketStatusText" class="status-text">Loading...</span>
                 </div>
-            </div>
-        </header>
-
-        <div class="ticker-selector">
-            <label for="tickerSearch">Select a Stock:</label>
-            <div class="dropdown-container">
-                <input type="text"
-                       id="tickerSearch"
-                       placeholder="Search ticker or company name..."
-                       autocomplete="off">
-                <div id="dropdownList" class="dropdown-list hidden"></div>
+                <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">
+                    <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                    <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                </button>
             </div>
         </div>
+    </header>
 
-        <div id="stockData" class="stock-data hidden">
-            <div class="stock-header">
-                <h2 id="stockTitle"></h2>
-                <div id="stockPrice" class="stock-price"></div>
+    <div class="app-layout">
+        <main class="main-content">
+            <div class="ticker-selector">
+                <label for="tickerSearch">Select a Stock:</label>
+                <div class="dropdown-container">
+                    <input type="text"
+                           id="tickerSearch"
+                           placeholder="Search ticker or company name..."
+                           autocomplete="off">
+                    <div id="dropdownList" class="dropdown-list hidden"></div>
+                </div>
             </div>
 
-            <div class="tabs">
-                <button class="tab-button active" data-tab="overview">Overview</button>
-                <button class="tab-button" data-tab="financials">Financials</button>
-                <button class="tab-button" data-tab="dividends">Dividends</button>
-                <button class="tab-button" data-tab="splits">Splits</button>
-                <button class="tab-button" data-tab="news">News</button>
-                <button class="tab-button" data-tab="sentiment">Sentiment</button>
-                <button class="tab-button" data-tab="forecast">Forecast <span class="beta-tag">Beta</span></button>
-            </div>
-
-            <div class="tab-content">
-                <div id="overview" class="tab-pane active">
-                    <div class="chart-section">
-                        <h3>Price Chart</h3>
-                        <div class="chart-controls">
-                            <button class="chart-range-btn active" data-range="1M">1M</button>
-                            <button class="chart-range-btn" data-range="3M">3M</button>
-                            <button class="chart-range-btn" data-range="6M">6M</button>
-                            <button class="chart-range-btn" data-range="1Y">1Y</button>
-                            <button class="chart-range-btn" data-range="5Y">5Y</button>
-                            <div class="chart-controls-spacer"></div>
-                            <div class="chart-view-toggle">
-                                <button class="chart-view-btn active" data-view="line">Line</button>
-                                <button class="chart-view-btn" data-view="candle">Candle</button>
-                            </div>
-                        </div>
-                        <canvas id="priceChart"></canvas>
-                    </div>
-                    <div class="metrics-grid">
-                        <div class="metric-card">
-                            <div class="metric-label">Open</div>
-                            <div class="metric-value" id="openPrice">--</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">High</div>
-                            <div class="metric-value" id="highPrice">--</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">Low</div>
-                            <div class="metric-value" id="lowPrice">--</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">Volume</div>
-                            <div class="metric-value" id="volume">--</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">Market Cap</div>
-                            <div class="metric-value" id="marketCap">--</div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-label">P/E Ratio</div>
-                            <div class="metric-value" id="peRatio">--</div>
-                        </div>
-                    </div>
-                    <div class="company-description">
-                        <h3>Company Description</h3>
-                        <p id="companyDesc">--</p>
-                    </div>
+            <div id="stockData" class="stock-data hidden">
+                <div class="stock-header">
+                    <h2 id="stockTitle"></h2>
+                    <div id="stockPrice" class="stock-price"></div>
                 </div>
 
-                <div id="financials" class="tab-pane">
-                    <div id="financialsData">
-                        <p>Loading financial data...</p>
-                    </div>
+                <div class="tabs">
+                    <button class="tab-button active" data-tab="overview">Overview</button>
+                    <button class="tab-button" data-tab="financials">Financials</button>
+                    <button class="tab-button" data-tab="dividends">Dividends</button>
+                    <button class="tab-button" data-tab="splits">Splits</button>
+                    <button class="tab-button" data-tab="news">News</button>
+                    <button class="tab-button" data-tab="sentiment">Sentiment</button>
+                    <button class="tab-button" data-tab="forecast">Forecast <span class="beta-tag">Beta</span></button>
                 </div>
 
-                <div id="dividends" class="tab-pane">
-                    <div id="dividendsContainer">
-                        <p>Loading dividend data...</p>
-                    </div>
-                </div>
-
-                <div id="splits" class="tab-pane">
-                    <div id="splitsContainer">
-                        <p>Loading stock split data...</p>
-                    </div>
-                </div>
-
-                <div id="news" class="tab-pane">
-                    <div id="newsContainer">
-                        <p>Loading news...</p>
-                    </div>
-                </div>
-
-                <div id="sentiment" class="tab-pane">
-                    <div class="sentiment-header">
-                        <div class="sentiment-aggregate">
-                            <div class="sentiment-score-container">
-                                <div class="sentiment-gauge" id="sentimentGauge">
-                                    <div class="gauge-background"></div>
-                                    <div class="gauge-fill" id="gaugeFill"></div>
-                                    <div class="gauge-needle" id="gaugeNeedle"></div>
-                                    <div class="gauge-center"></div>
-                                </div>
-                                <div class="sentiment-label" id="sentimentLabel">--</div>
-                            </div>
-                            <div class="sentiment-stats">
-                                <div class="stat-item">
-                                    <span class="stat-label">Posts Analyzed</span>
-                                    <span class="stat-value" id="sentimentPostCount">--</span>
-                                </div>
-                                <div class="stat-item">
-                                    <span class="stat-label">Last Updated</span>
-                                    <span class="stat-value" id="sentimentLastUpdated">--</span>
+                <div class="tab-content">
+                    <div id="overview" class="tab-pane active">
+                        <div class="chart-section">
+                            <h3>Price Chart</h3>
+                            <div class="chart-controls">
+                                <button class="chart-range-btn active" data-range="1M">1M</button>
+                                <button class="chart-range-btn" data-range="3M">3M</button>
+                                <button class="chart-range-btn" data-range="6M">6M</button>
+                                <button class="chart-range-btn" data-range="1Y">1Y</button>
+                                <button class="chart-range-btn" data-range="5Y">5Y</button>
+                                <div class="chart-controls-spacer"></div>
+                                <div class="chart-view-toggle">
+                                    <button class="chart-view-btn active" data-view="line">Line</button>
+                                    <button class="chart-view-btn" data-view="candle">Candle</button>
                                 </div>
                             </div>
+                            <canvas id="priceChart"></canvas>
                         </div>
-                        <button id="refreshSentiment" class="refresh-btn">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 2v6h-6"></path>
-                                <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
-                                <path d="M3 22v-6h6"></path>
-                                <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
-                            </svg>
-                            Refresh
-                        </button>
-                    </div>
-
-                    <div class="sentiment-sources">
-                        <h4>Sources</h4>
-                        <div class="source-breakdown">
-                            <div class="source-item" id="stocktwitsSource">
-                                <span class="source-icon">📈</span>
-                                <span class="source-name">Stocktwits</span>
-                                <span class="source-count">--</span>
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-label">Open</div>
+                                <div class="metric-value" id="openPrice">--</div>
                             </div>
-                            <div class="source-item" id="redditSource">
-                                <span class="source-icon">👽</span>
-                                <span class="source-name">Reddit</span>
-                                <span class="source-count">--</span>
+                            <div class="metric-card">
+                                <div class="metric-label">High</div>
+                                <div class="metric-value" id="highPrice">--</div>
                             </div>
-                            <div class="source-item" id="twitterSource">
-                                <span class="source-icon">🐦</span>
-                                <span class="source-name">Twitter/X</span>
-                                <span class="source-count">--</span>
+                            <div class="metric-card">
+                                <div class="metric-label">Low</div>
+                                <div class="metric-value" id="lowPrice">--</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Volume</div>
+                                <div class="metric-value" id="volume">--</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Market Cap</div>
+                                <div class="metric-value" id="marketCap">--</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">P/E Ratio</div>
+                                <div class="metric-value" id="peRatio">--</div>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="sentiment-posts-section">
-                        <div class="posts-header">
-                            <h4>Recent Posts</h4>
-                            <div class="posts-filter">
-                                <button class="filter-btn active" data-filter="all">All</button>
-                                <button class="filter-btn" data-filter="positive">Bullish</button>
-                                <button class="filter-btn" data-filter="negative">Bearish</button>
-                            </div>
-                        </div>
-                        <div id="sentimentPostsContainer">
-                            <p class="loading-text">Select a stock to analyze sentiment...</p>
+                        <div class="company-description">
+                            <h3>Company Description</h3>
+                            <p id="companyDesc">--</p>
                         </div>
                     </div>
-                </div>
 
-                <div id="forecast" class="tab-pane">
-                    <div class="forecast-header">
-                        <div class="forecast-info">
-                            <h4>Price Forecast</h4>
-                            <p class="forecast-description">
-                                LSTM neural network prediction based on historical price patterns
+                    <div id="financials" class="tab-pane">
+                        <div id="financialsData">
+                            <p>Loading financial data...</p>
+                        </div>
+                    </div>
+
+                    <div id="dividends" class="tab-pane">
+                        <div id="dividendsContainer">
+                            <p>Loading dividend data...</p>
+                        </div>
+                    </div>
+
+                    <div id="splits" class="tab-pane">
+                        <div id="splitsContainer">
+                            <p>Loading stock split data...</p>
+                        </div>
+                    </div>
+
+                    <div id="news" class="tab-pane">
+                        <div id="newsContainer">
+                            <p>Loading news...</p>
+                        </div>
+                    </div>
+
+                    <div id="sentiment" class="tab-pane">
+                        <div class="sentiment-header">
+                            <div class="sentiment-aggregate">
+                                <div class="sentiment-score-container">
+                                    <div class="sentiment-gauge" id="sentimentGauge">
+                                        <div class="gauge-background"></div>
+                                        <div class="gauge-fill" id="gaugeFill"></div>
+                                        <div class="gauge-needle" id="gaugeNeedle"></div>
+                                        <div class="gauge-center"></div>
+                                    </div>
+                                    <div class="sentiment-label" id="sentimentLabel">--</div>
+                                </div>
+                                <div class="sentiment-stats">
+                                    <div class="stat-item">
+                                        <span class="stat-label">Posts Analyzed</span>
+                                        <span class="stat-value" id="sentimentPostCount">--</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">Last Updated</span>
+                                        <span class="stat-value" id="sentimentLastUpdated">--</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button id="refreshSentiment" class="refresh-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 2v6h-6"></path>
+                                    <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+                                    <path d="M3 22v-6h6"></path>
+                                    <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+                                </svg>
+                                Refresh
+                            </button>
+                        </div>
+
+                        <div class="sentiment-sources">
+                            <h4>Sources</h4>
+                            <div class="source-breakdown">
+                                <div class="source-item" id="stocktwitsSource">
+                                    <span class="source-icon">📈</span>
+                                    <span class="source-name">Stocktwits</span>
+                                    <span class="source-count">--</span>
+                                </div>
+                                <div class="source-item" id="redditSource">
+                                    <span class="source-icon">👽</span>
+                                    <span class="source-name">Reddit</span>
+                                    <span class="source-count">--</span>
+                                </div>
+                                <div class="source-item" id="twitterSource">
+                                    <span class="source-icon">🐦</span>
+                                    <span class="source-name">Twitter/X</span>
+                                    <span class="source-count">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="sentiment-posts-section">
+                            <div class="posts-header">
+                                <h4>Recent Posts</h4>
+                                <div class="posts-filter">
+                                    <button class="filter-btn active" data-filter="all">All</button>
+                                    <button class="filter-btn" data-filter="positive">Bullish</button>
+                                    <button class="filter-btn" data-filter="negative">Bearish</button>
+                                </div>
+                            </div>
+                            <div id="sentimentPostsContainer">
+                                <p class="loading-text">Select a stock to analyze sentiment...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="forecast" class="tab-pane">
+                        <div class="forecast-header">
+                            <div class="forecast-info">
+                                <h4>Price Forecast</h4>
+                                <p class="forecast-description">
+                                    LSTM neural network prediction based on historical price patterns
+                                </p>
+                            </div>
+                            <div class="forecast-controls">
+                                <div class="forecast-status">
+                                    <div class="status-item">
+                                        <span class="status-label">Model Status</span>
+                                        <span class="status-value" id="forecastModelStatus">Not trained</span>
+                                    </div>
+                                    <div class="status-item">
+                                        <span class="status-label">Last Updated</span>
+                                        <span class="status-value" id="forecastLastUpdated">--</span>
+                                    </div>
+                                </div>
+                                <div class="forecast-actions">
+                                    <button id="refreshForecastBtn" class="forecast-btn">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 2v6h-6"></path>
+                                            <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+                                            <path d="M3 22v-6h6"></path>
+                                            <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+                                        </svg>
+                                        Train Model
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="forecast-chart-section">
+                            <div class="chart-legend">
+                                <span class="legend-item historical">
+                                    <span class="legend-color"></span> Historical
+                                </span>
+                                <span class="legend-item predicted">
+                                    <span class="legend-color"></span> Predicted
+                                </span>
+                                <span class="legend-item confidence">
+                                    <span class="legend-color"></span> Confidence Band
+                                </span>
+                            </div>
+                            <canvas id="forecastChart"></canvas>
+                        </div>
+
+                        <div class="forecast-disclaimer">
+                            <p>
+                                <strong>Disclaimer:</strong> These predictions are generated by a machine learning model
+                                for educational purposes only. Past performance does not guarantee future results.
+                                This is not financial advice.
                             </p>
                         </div>
-                        <div class="forecast-controls">
-                            <div class="forecast-status">
-                                <div class="status-item">
-                                    <span class="status-label">Model Status</span>
-                                    <span class="status-value" id="forecastModelStatus">Not trained</span>
-                                </div>
-                                <div class="status-item">
-                                    <span class="status-label">Last Updated</span>
-                                    <span class="status-value" id="forecastLastUpdated">--</span>
-                                </div>
-                            </div>
-                            <div class="forecast-actions">
-                                <button id="refreshForecastBtn" class="forecast-btn">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M21 2v6h-6"></path>
-                                        <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
-                                        <path d="M3 22v-6h6"></path>
-                                        <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
-                                    </svg>
-                                    Train Model
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="forecast-chart-section">
-                        <div class="chart-legend">
-                            <span class="legend-item historical">
-                                <span class="legend-color"></span> Historical
-                            </span>
-                            <span class="legend-item predicted">
-                                <span class="legend-color"></span> Predicted
-                            </span>
-                            <span class="legend-item confidence">
-                                <span class="legend-color"></span> Confidence Band
-                            </span>
-                        </div>
-                        <canvas id="forecastChart"></canvas>
-                    </div>
-
-                    <div class="forecast-disclaimer">
-                        <p>
-                            <strong>Disclaimer:</strong> These predictions are generated by a machine learning model
-                            for educational purposes only. Past performance does not guarantee future results.
-                            This is not financial advice.
-                        </p>
                     </div>
                 </div>
+
+                <div id="loading" class="loading hidden">
+                    <div class="spinner"></div>
+                </div>
             </div>
+        </main>
 
-            <div id="loading" class="loading hidden">
-                <div class="spinner"></div>
+        <!-- Chat Panel -->
+        <aside class="chat-panel" id="chatPanel">
+            <button class="chat-collapse-btn" id="chatCollapseBtn" aria-label="Toggle chat panel">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+            <div class="chat-panel-content">
+                <div class="chat-header">
+                    <h3>AI Assistant</h3>
+                </div>
+
+                <div class="chat-ticker-context">
+                    <span id="chatCurrentTicker">Select a stock to start</span>
+                </div>
+
+                <div id="chatMessages" class="chat-messages">
+                    <!-- Messages populated dynamically -->
+                </div>
+
+                <div class="chat-input-container">
+                    <textarea id="chatInput"
+                              placeholder="Ask about this stock..."
+                              rows="2"></textarea>
+                    <button id="sendChatBtn" class="send-chat-btn">Send</button>
+                </div>
             </div>
-        </div>
+            <div class="chat-collapsed-label">
+                <span>AI</span>
+            </div>
+        </aside>
     </div>
-
-    <!-- Chat Sidebar -->
-    <div id="chatSidebar" class="chat-sidebar">
-        <div class="chat-header">
-            <h3>AI Assistant</h3>
-            <button id="closeChatBtn" class="close-chat-btn">&times;</button>
-        </div>
-
-        <div class="chat-ticker-context">
-            <span id="chatCurrentTicker">Select a stock to start</span>
-        </div>
-
-        <div id="chatMessages" class="chat-messages">
-            <!-- Messages populated dynamically -->
-        </div>
-
-        <div class="chat-input-container">
-            <textarea id="chatInput"
-                      placeholder="Ask about this stock..."
-                      rows="2"></textarea>
-            <button id="sendChatBtn" class="send-chat-btn">Send</button>
-        </div>
-    </div>
-
-    <!-- Toggle Chat Button -->
-    <button id="toggleChatBtn" class="toggle-chat-btn">AI Chat</button>
 
     <script src="app.js"></script>
 </body>
