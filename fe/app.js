@@ -1716,19 +1716,6 @@ let sentimentState = {
 };
 
 function setupSentimentListeners() {
-    // Refresh button
-    const refreshBtn = document.getElementById('refreshSentiment');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            if (currentTicker) {
-                // Clear cache and reload
-                const cacheKey = `sentiment_${currentTicker}`;
-                delete cache.data[cacheKey];
-                loadSentiment(currentTicker, true);
-            }
-        });
-    }
-
     // Filter buttons
     const filterBtns = document.querySelectorAll('.posts-filter .filter-btn');
     filterBtns.forEach(btn => {
@@ -1741,33 +1728,20 @@ function setupSentimentListeners() {
     });
 }
 
-async function loadSentiment(ticker, forceRefresh = false) {
+async function loadSentiment(ticker) {
     const cacheKey = `sentiment_${ticker}`;
     const container = document.getElementById('sentimentPostsContainer');
 
     // Show loading state
-    if (!forceRefresh) {
-        container.innerHTML = '<p class="loading-text">Analyzing social media sentiment...</p>';
-    }
-
-    // Update refresh button state
-    const refreshBtn = document.getElementById('refreshSentiment');
-    if (refreshBtn) {
-        refreshBtn.disabled = true;
-        refreshBtn.classList.add('loading');
-    }
+    container.innerHTML = '<p class="loading-text">Analyzing social media sentiment...</p>';
 
     sentimentState.isLoading = true;
 
-    // Check cache first (unless forcing refresh)
-    if (!forceRefresh && cache.has(cacheKey)) {
+    // Check cache first
+    if (cache.has(cacheKey)) {
         const data = cache.get(cacheKey);
         renderSentiment(data);
         sentimentState.isLoading = false;
-        if (refreshBtn) {
-            refreshBtn.disabled = false;
-            refreshBtn.classList.remove('loading');
-        }
         return;
     }
 
@@ -1795,10 +1769,6 @@ async function loadSentiment(ticker, forceRefresh = false) {
         resetSentimentUI();
     } finally {
         sentimentState.isLoading = false;
-        if (refreshBtn) {
-            refreshBtn.disabled = false;
-            refreshBtn.classList.remove('loading');
-        }
     }
 }
 

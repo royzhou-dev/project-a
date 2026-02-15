@@ -6,7 +6,9 @@ Sentiment analysis service that orchestrates:
 4. Aggregate sentiment calculation
 """
 
+import json
 import math
+import os
 import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -36,6 +38,8 @@ class SentimentService:
     NAMESPACE = "sentiment"
     MAX_POSTS_PER_PLATFORM = 30
     MAX_WORKERS = 5
+    CACHE_TTL_MINUTES = 15
+    CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sentiment_cache")
 
     # Bias correction: asymmetric thresholds to counteract bullish bias in data sources
     # Social media (WSB, StockTwits) skews positive; FinBERT also has slight positive bias
@@ -63,6 +67,40 @@ class SentimentService:
             twitter_bearer_token=TWITTER_BEARER_TOKEN
         )
 
+    def _get_cached_result(self, ticker: str) -> Optional[Dict]:
+        """Return cached sentiment result if fresh, None if stale or missing."""
+        cache_path = os.path.join(self.CACHE_DIR, f"{ticker}.json")
+        try:
+            if not os.path.exists(cache_path):
+                return None
+            with open(cache_path, "r") as f:
+                cached = json.load(f)
+            cached_at = datetime.fromisoformat(cached["cached_at"])
+            age_minutes = (datetime.now(timezone.utc) - cached_at).total_seconds() / 60
+            if age_minutes > self.CACHE_TTL_MINUTES:
+                logger.info(f"Sentiment cache expired for {ticker} ({age_minutes:.1f} min old)")
+                return None
+            logger.info(f"Sentiment cache hit for {ticker} ({age_minutes:.1f} min old)")
+            return cached["result"]
+        except Exception as e:
+            logger.warning(f"Error reading sentiment cache for {ticker}: {e}")
+            return None
+
+    def _save_result_to_cache(self, ticker: str, result: Dict) -> None:
+        """Persist sentiment result to disk cache."""
+        try:
+            os.makedirs(self.CACHE_DIR, exist_ok=True)
+            cache_path = os.path.join(self.CACHE_DIR, f"{ticker}.json")
+            payload = {
+                "cached_at": datetime.now(timezone.utc).isoformat(),
+                "result": result
+            }
+            with open(cache_path, "w") as f:
+                json.dump(payload, f)
+            logger.info(f"Sentiment result cached for {ticker}")
+        except Exception as e:
+            logger.warning(f"Error saving sentiment cache for {ticker}: {e}")
+
     def analyze_ticker(self, ticker: str) -> Dict:
         """
         Full sentiment analysis pipeline for a ticker.
@@ -79,6 +117,12 @@ class SentimentService:
             dict with aggregate sentiment, posts, and stats
         """
         ticker = ticker.upper()
+
+        # Check disk cache first
+        cached = self._get_cached_result(ticker)
+        if cached is not None:
+            return cached
+
         logger.info(f"Starting sentiment analysis for {ticker}")
 
         # Step 1: Scrape posts from all platforms
@@ -194,13 +238,18 @@ class SentimentService:
 
         logger.info(f"Sentiment analysis complete for {ticker}: {aggregate['label']} ({aggregate['score']:.2f})")
 
-        return {
+        result = {
             "aggregate": aggregate,
             "posts": formatted_posts,
             "scraped": len(all_posts),
             "embedded": embedded_count,
             "failed": failed_count
         }
+
+        # Save to disk cache
+        self._save_result_to_cache(ticker, result)
+
+        return result
 
     def get_summary(self, ticker: str) -> Dict:
         """
