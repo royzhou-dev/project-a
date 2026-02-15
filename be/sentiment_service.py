@@ -101,7 +101,7 @@ class SentimentService:
         except Exception as e:
             logger.warning(f"Error saving sentiment cache for {ticker}: {e}")
 
-    def analyze_ticker(self, ticker: str) -> Dict:
+    def analyze_ticker(self, ticker: str, force_refresh: bool = False) -> Dict:
         """
         Full sentiment analysis pipeline for a ticker.
 
@@ -118,10 +118,11 @@ class SentimentService:
         """
         ticker = ticker.upper()
 
-        # Check disk cache first
-        cached = self._get_cached_result(ticker)
-        if cached is not None:
-            return cached
+        # Check disk cache first (skip if force refresh)
+        if not force_refresh:
+            cached = self._get_cached_result(ticker)
+            if cached is not None:
+                return cached
 
         logger.info(f"Starting sentiment analysis for {ticker}")
 

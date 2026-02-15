@@ -1726,22 +1726,41 @@ function setupSentimentListeners() {
             renderSentimentPosts(sentimentState.posts);
         });
     });
+
+    // Refresh button
+    const refreshBtn = document.getElementById('sentimentRefreshBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            if (currentTicker && !sentimentState.isLoading) {
+                loadSentiment(currentTicker, true);
+            }
+        });
+    }
 }
 
-async function loadSentiment(ticker) {
+async function loadSentiment(ticker, forceRefresh = false) {
     const cacheKey = `sentiment_${ticker}`;
     const container = document.getElementById('sentimentPostsContainer');
+    const refreshBtn = document.getElementById('sentimentRefreshBtn');
 
     // Show loading state
     container.innerHTML = '<p class="loading-text">Analyzing social media sentiment...</p>';
 
     sentimentState.isLoading = true;
+    if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add('loading');
+    }
 
-    // Check cache first
-    if (cache.has(cacheKey)) {
+    // Check cache first (skip if force refresh)
+    if (!forceRefresh && cache.has(cacheKey)) {
         const data = cache.get(cacheKey);
         renderSentiment(data);
         sentimentState.isLoading = false;
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('loading');
+        }
         return;
     }
 
@@ -1749,7 +1768,7 @@ async function loadSentiment(ticker) {
         const response = await fetch(`${API_BASE}/sentiment/analyze`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ticker: ticker })
+            body: JSON.stringify({ ticker: ticker, force_refresh: forceRefresh })
         });
 
         if (!response.ok) {
@@ -1769,6 +1788,10 @@ async function loadSentiment(ticker) {
         resetSentimentUI();
     } finally {
         sentimentState.isLoading = false;
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('loading');
+        }
     }
 }
 
@@ -1958,6 +1981,14 @@ let forecastChartState = {
 };
 
 function setupForecastListeners() {
+    const refreshBtn = document.getElementById('forecastRefreshBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            if (currentTicker && !forecastState.isLoading) {
+                loadForecast(currentTicker, true);
+            }
+        });
+    }
 }
 
 async function getHistoricalDataForForecast(ticker) {
@@ -2014,23 +2045,32 @@ async function getHistoricalDataForForecast(ticker) {
     return null;
 }
 
-async function loadForecast(ticker) {
+async function loadForecast(ticker, forceRefresh = false) {
     const cacheKey = `forecast_${ticker}`;
     const container = document.getElementById('forecastTableContainer');
+    const refreshBtn = document.getElementById('forecastRefreshBtn');
 
     // Show loading state
     container.innerHTML = '<p class="loading-text">Loading forecast...</p>';
 
     forecastState.isLoading = true;
+    if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add('loading');
+    }
 
     // Update status to show loading
     document.getElementById('forecastModelStatus').textContent = 'Loading...';
 
-    // Check cache first
-    if (cache.has(cacheKey)) {
+    // Check cache first (skip if force refresh)
+    if (!forceRefresh && cache.has(cacheKey)) {
         const data = cache.get(cacheKey);
         renderForecast(data);
         forecastState.isLoading = false;
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('loading');
+        }
         return;
     }
 
@@ -2042,7 +2082,8 @@ async function loadForecast(ticker) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                historical_data: historicalData
+                historical_data: historicalData,
+                force_retrain: forceRefresh
             })
         });
 
@@ -2061,7 +2102,10 @@ async function loadForecast(ticker) {
         resetForecastUI();
     } finally {
         forecastState.isLoading = false;
-    
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('loading');
+        }
     }
 }
 

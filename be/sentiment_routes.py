@@ -45,10 +45,12 @@ def analyze_sentiment():
         if not ticker:
             return jsonify({"error": "Ticker symbol required"}), 400
 
-        logger.info(f"Sentiment analysis request for {ticker}")
+        force_refresh = data.get('force_refresh', False)
+
+        logger.info(f"Sentiment analysis request for {ticker} (force_refresh={force_refresh})")
 
         service = get_sentiment_service()
-        result = service.analyze_ticker(ticker)
+        result = service.analyze_ticker(ticker, force_refresh=force_refresh)
 
         return jsonify(result)
 
