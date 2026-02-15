@@ -1,0 +1,11 @@
+{
+  "ticker": "META",
+  "trained_at": "2026-02-15T00:40:41.720308Z",
+  "training_epochs": 50,
+  "final_train_loss": 0.021506534762341867,
+  "final_val_loss": 0.016762929037213326,
+  "data_points": 501,
+  "sequence_length": 60,
+  "forecast_horizon": 30,
+  "model_version": "1.0"
+}

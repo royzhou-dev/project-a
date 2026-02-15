@@ -111,5 +111,4 @@ TWITTER_BEARER_TOKEN= # Optional, paid ($100+/month)
 
 
 ## TODO:
-1. Sentiment and Forecast tab behavior should be closer. Sentiment analysis is automatically run, but with Forecast, button needs to be clicked to start processing.
-2. Error interacting with agent: Agent error: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Please ensure that the number of function response parts is equal to the number of function call parts of the function call turn.', 'status': 'INVALID_ARGUMENT'}}
+1. Error interacting with agent: Agent error: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Please ensure that the number of function response parts is equal to the number of function call parts of the function call turn.', 'status': 'INVALID_ARGUMENT'}}

@@ -424,6 +424,14 @@ async function loadStockData(ticker) {
             await loadFinancials(ticker);
         } else if (activeTab === 'news') {
             await loadNews(ticker);
+        } else if (activeTab === 'sentiment') {
+            loadSentiment(ticker);
+        } else if (activeTab === 'forecast') {
+            loadForecast(ticker);
+        } else if (activeTab === 'dividends') {
+            loadDividends(ticker);
+        } else if (activeTab === 'splits') {
+            loadSplits(ticker);
         }
 
         // Preload news and trigger article scraping for RAG in background
@@ -1962,13 +1970,6 @@ let forecastChartState = {
 };
 
 function setupForecastListeners() {
-    const refreshBtn = document.getElementById('refreshForecastBtn');
-
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            if (currentTicker) loadForecast(currentTicker, true);
-        });
-    }
 }
 
 async function getHistoricalDataForForecast(ticker) {
@@ -2025,27 +2026,23 @@ async function getHistoricalDataForForecast(ticker) {
     return null;
 }
 
-async function loadForecast(ticker, forceRefresh = false) {
+async function loadForecast(ticker) {
     const cacheKey = `forecast_${ticker}`;
     const container = document.getElementById('forecastTableContainer');
 
     // Show loading state
-    if (!forceRefresh) {
-        container.innerHTML = '<p class="loading-text">Loading forecast...</p>';
-    }
+    container.innerHTML = '<p class="loading-text">Loading forecast...</p>';
 
     forecastState.isLoading = true;
-    updateForecastButtons();
 
     // Update status to show loading
     document.getElementById('forecastModelStatus').textContent = 'Loading...';
 
     // Check cache first
-    if (!forceRefresh && cache.has(cacheKey)) {
+    if (cache.has(cacheKey)) {
         const data = cache.get(cacheKey);
         renderForecast(data);
         forecastState.isLoading = false;
-        updateForecastButtons();
         return;
     }
 
@@ -2057,7 +2054,6 @@ async function loadForecast(ticker, forceRefresh = false) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                force_retrain: forceRefresh,
                 historical_data: historicalData
             })
         });
@@ -2077,12 +2073,15 @@ async function loadForecast(ticker, forceRefresh = false) {
         resetForecastUI();
     } finally {
         forecastState.isLoading = false;
-        updateForecastButtons();
+    
     }
 }
 
 function renderForecast(data) {
     forecastState.data = data;
+
+    // Clear loading text
+    document.getElementById('forecastTableContainer').innerHTML = '';
 
     // Update status
     if (data.model_info) {
@@ -2433,18 +2432,7 @@ function handleForecastChartMouseLeave() {
     }
 }
 
-function updateForecastButtons() {
-    const refreshBtn = document.getElementById('refreshForecastBtn');
 
-    if (refreshBtn) {
-        refreshBtn.disabled = forecastState.isLoading || !currentTicker;
-        if (forecastState.isLoading) {
-            refreshBtn.classList.add('loading');
-        } else {
-            refreshBtn.classList.remove('loading');
-        }
-    }
-}
 
 function resetForecastUI() {
     document.getElementById('forecastModelStatus').textContent = 'Not trained';
